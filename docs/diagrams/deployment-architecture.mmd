@@ -1,0 +1,254 @@
+# Deployment Architecture
+
+## Kubernetes Deployment
+
+```mermaid
+graph TB
+    subgraph Internet
+        Users[Users]
+    end
+
+    subgraph K8s["Kubernetes Cluster"]
+        subgraph Ingress["Ingress Layer"]
+            NginxIngress[Nginx Ingress Controller<br/>SSL Termination<br/>auth.boddle.com]
+        end
+
+        subgraph AuthNamespace["Namespace: auth-gateway"]
+            subgraph AuthDeployment["Deployment: reservoir"]
+                AuthPod1[Pod 1<br/>reservoir:v1.0.0<br/>256Mi RAM<br/>500m CPU]
+                AuthPod2[Pod 2<br/>reservoir:v1.0.0<br/>256Mi RAM<br/>500m CPU]
+                AuthPod3[Pod 3<br/>reservoir:v1.0.0<br/>256Mi RAM<br/>500m CPU]
+            end
+
+            AuthService[Service: reservoir<br/>Type: ClusterIP<br/>Port: 8080]
+            AuthHPA[Horizontal Pod Autoscaler<br/>Min: 3, Max: 10<br/>Target CPU: 70%]
+
+            AuthConfig[ConfigMap<br/>Non-sensitive config]
+            AuthSecrets[Secrets<br/>JWT keys, DB passwords]
+        end
+
+        subgraph RailsNamespace["Namespace: rails-lms"]
+            subgraph RailsDeployment["Deployment: rails"]
+                RailsPod1[Pod 1<br/>rails:latest<br/>512Mi RAM<br/>1000m CPU]
+                RailsPod2[Pod 2]
+                RailsPod3[Pod 3]
+                RailsPod4[Pod 4]
+                RailsPod5[Pod 5]
+            end
+
+            RailsService[Service: rails<br/>Type: ClusterIP<br/>Port: 3000]
+            RailsHPA[HPA<br/>Min: 5, Max: 20]
+        end
+
+        subgraph DataNamespace["Namespace: data"]
+            subgraph PostgreSQL["StatefulSet: postgresql"]
+                PGPrimary[Primary<br/>postgresql:15<br/>4Gi RAM<br/>2000m CPU]
+                PGReplica1[Replica 1]
+                PGReplica2[Replica 2]
+            end
+
+            PGService[Service: postgresql<br/>Headless Service]
+            PGPVC[PersistentVolumeClaim<br/>100Gi SSD]
+
+            subgraph Redis["StatefulSet: redis"]
+                RedisPrimary[Primary<br/>redis:7<br/>2Gi RAM]
+                RedisReplica1[Replica 1]
+                RedisReplica2[Replica 2]
+            end
+
+            RedisService[Service: redis<br/>Sentinel Mode]
+        end
+
+        subgraph MonitoringNamespace["Namespace: monitoring"]
+            Prometheus[Prometheus<br/>Scrape metrics]
+            Grafana[Grafana<br/>Dashboards]
+            Alertmanager[Alertmanager<br/>Alerts]
+        end
+    end
+
+    subgraph External["External Services"]
+        CloudSQL[(Google Cloud SQL<br/>PostgreSQL)]
+        ElastiCache[(AWS ElastiCache<br/>Redis)]
+    end
+
+    Users -->|HTTPS| NginxIngress
+    NginxIngress -->|/auth/*| AuthService
+    NginxIngress -->|/*| RailsService
+
+    AuthService --> AuthPod1 & AuthPod2 & AuthPod3
+    RailsService --> RailsPod1 & RailsPod2 & RailsPod3 & RailsPod4 & RailsPod5
+
+    AuthHPA -.->|Scale| AuthDeployment
+    RailsHPA -.->|Scale| RailsDeployment
+
+    AuthPod1 & AuthPod2 & AuthPod3 -->|Read Config| AuthConfig
+    AuthPod1 & AuthPod2 & AuthPod3 -->|Read Secrets| AuthSecrets
+
+    AuthPod1 & AuthPod2 & AuthPod3 -->|Query| PGService
+    AuthPod1 & AuthPod2 & AuthPod3 -->|Cache| RedisService
+
+    RailsPod1 & RailsPod2 & RailsPod3 & RailsPod4 & RailsPod5 -->|Query| PGService
+    RailsPod1 & RailsPod2 & RailsPod3 & RailsPod4 & RailsPod5 -->|Cache| RedisService
+
+    PGService --> PGPrimary
+    PGPrimary --> PGPVC
+    PGPrimary -.->|Replicate| PGReplica1 & PGReplica2
+
+    RedisService --> RedisPrimary
+    RedisPrimary -.->|Replicate| RedisReplica1 & RedisReplica2
+
+    Prometheus -->|Scrape| AuthService
+    Prometheus -->|Scrape| RailsService
+    Prometheus -->|Query| Grafana
+    Prometheus -->|Alert| Alertmanager
+
+    style AuthNamespace fill:#c8e6c9
+    style RailsNamespace fill:#e1f5fe
+    style DataNamespace fill:#fff9c4
+    style MonitoringNamespace fill:#f3e5f5
+```
+
+## AWS Deployment Architecture
+
+```mermaid
+graph TB
+    subgraph Internet
+        Users[Users]
+    end
+
+    subgraph CloudFront["CloudFront CDN"]
+        CF[CloudFront Distribution<br/>TLS Certificates<br/>Edge Caching]
+    end
+
+    subgraph VPC["AWS VPC (10.0.0.0/16)"]
+        subgraph PublicSubnet["Public Subnets (10.0.1.0/24, 10.0.2.0/24)"]
+            ALB[Application Load Balancer<br/>Target Groups:<br/>- Auth Gateway<br/>- Rails LMS]
+            NAT1[NAT Gateway AZ1]
+            NAT2[NAT Gateway AZ2]
+        end
+
+        subgraph PrivateSubnetApp["Private Subnets - App (10.0.10.0/24, 10.0.11.0/24)"]
+            subgraph ECS["ECS Fargate"]
+                subgraph AuthTG["Target Group: Auth Gateway"]
+                    AuthTask1[Fargate Task 1<br/>reservoir:v1.0.0<br/>0.5 vCPU, 1GB RAM]
+                    AuthTask2[Fargate Task 2]
+                    AuthTask3[Fargate Task 3]
+                end
+
+                subgraph RailsTG["Target Group: Rails LMS"]
+                    RailsTask1[Fargate Task 1<br/>rails:latest<br/>1 vCPU, 2GB RAM]
+                    RailsTask2[Fargate Task 2]
+                    RailsTask3[Fargate Task 3]
+                    RailsTask4[Fargate Task 4]
+                    RailsTask5[Fargate Task 5]
+                end
+            end
+
+            ASG[Auto Scaling Group<br/>Min: 8, Max: 25<br/>Target Tracking: CPU 70%]
+        end
+
+        subgraph PrivateSubnetData["Private Subnets - Data (10.0.20.0/24, 10.0.21.0/24)"]
+            subgraph RDS["RDS PostgreSQL"]
+                RDSPrimary[(Primary Instance<br/>db.r5.xlarge<br/>Multi-AZ)]
+                RDSReplica[(Read Replica<br/>db.r5.large)]
+            end
+
+            subgraph ElastiCache["ElastiCache Redis"]
+                RedisPrimary[(Primary Node<br/>cache.r5.large)]
+                RedisReplica1[(Replica Node 1)]
+                RedisReplica2[(Replica Node 2)]
+            end
+        end
+    end
+
+    subgraph Secrets["AWS Secrets Manager"]
+        SecretsManager[Secrets Manager<br/>- JWT Keys<br/>- DB Passwords<br/>- OAuth Credentials]
+    end
+
+    subgraph Monitoring["Monitoring"]
+        CloudWatch[CloudWatch<br/>Logs & Metrics]
+        XRay[X-Ray<br/>Tracing]
+    end
+
+    Users -->|HTTPS| CF
+    CF -->|HTTPS| ALB
+
+    ALB -->|/auth/*| AuthTG
+    ALB -->|/*| RailsTG
+
+    AuthTask1 & AuthTask2 & AuthTask3 -->|Via NAT| NAT1 & NAT2
+    RailsTask1 & RailsTask2 & RailsTask3 & RailsTask4 & RailsTask5 -->|Via NAT| NAT1 & NAT2
+
+    AuthTask1 & AuthTask2 & AuthTask3 -->|Query| RDSPrimary
+    RailsTask1 & RailsTask2 & RailsTask3 & RailsTask4 & RailsTask5 -->|Read| RDSReplica
+    RailsTask1 & RailsTask2 & RailsTask3 & RailsTask4 & RailsTask5 -->|Write| RDSPrimary
+
+    AuthTask1 & AuthTask2 & AuthTask3 -->|Cache| RedisPrimary
+    RailsTask1 & RailsTask2 & RailsTask3 & RailsTask4 & RailsTask5 -->|Cache| RedisPrimary
+
+    RedisPrimary -.->|Replicate| RedisReplica1 & RedisReplica2
+    RDSPrimary -.->|Replicate| RDSReplica
+
+    AuthTask1 & AuthTask2 & AuthTask3 -->|Get Secrets| SecretsManager
+    RailsTask1 & RailsTask2 & RailsTask3 & RailsTask4 & RailsTask5 -->|Get Secrets| SecretsManager
+
+    ASG -.->|Scale| ECS
+
+    ECS -->|Logs| CloudWatch
+    ECS -->|Traces| XRay
+
+    style VPC fill:#e3f2fd
+    style PublicSubnet fill:#fff9c4
+    style PrivateSubnetApp fill:#c8e6c9
+    style PrivateSubnetData fill:#ffccbc
+    style Monitoring fill:#f3e5f5
+```
+
+## Docker Compose (Development)
+
+```mermaid
+graph TB
+    subgraph Docker["Docker Compose"]
+        subgraph AppServices["Application Services"]
+            Go[reservoir<br/>Go Gateway<br/>Port: 8080<br/>Build: ./Dockerfile]
+            Rails[rails<br/>Rails LMS<br/>Port: 3000<br/>Image: rails:latest]
+        end
+
+        subgraph DataServices["Data Services"]
+            PG[(postgres<br/>PostgreSQL 15<br/>Port: 5432<br/>Volume: pg_data)]
+            Redis[(redis<br/>Redis 7<br/>Port: 6379<br/>Volume: redis_data)]
+        end
+
+        subgraph DevTools["Development Tools"]
+            Adminer[adminer<br/>DB Admin UI<br/>Port: 8081]
+            RedisCommander[redis-commander<br/>Redis UI<br/>Port: 8082]
+        end
+    end
+
+    subgraph Volumes["Docker Volumes"]
+        PGData[pg_data<br/>PostgreSQL Data]
+        RedisData[redis_data<br/>Redis Data]
+    end
+
+    subgraph Network["Docker Network: reservoir-network"]
+        Net[Bridge Network]
+    end
+
+    Go -->|Connect| PG
+    Go -->|Connect| Redis
+    Rails -->|Connect| PG
+    Rails -->|Connect| Redis
+
+    Adminer -->|Manage| PG
+    RedisCommander -->|Manage| Redis
+
+    PG -->|Persist| PGData
+    Redis -->|Persist| RedisData
+
+    Go & Rails & PG & Redis & Adminer & RedisCommander -.->|Communicate| Net
+
+    style AppServices fill:#c8e6c9
+    style DataServices fill:#fff9c4
+    style DevTools fill:#e1f5fe
+    style Volumes fill:#ffccbc
+```

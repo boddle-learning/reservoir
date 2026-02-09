@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # Boddle Auth Gateway
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=boddle
+      - DB_PASSWORD=password
+      - DB_NAME=lmsprod
+      - DB_SSL_MODE=disable
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=development-secret-key-minimum-32-chars-long
+      - JWT_REFRESH_SECRET_KEY=development-refresh-secret-key-32-chars
+      - JWT_ACCESS_TOKEN_TTL=6h
+      - JWT_REFRESH_TOKEN_TTL=720h
+      - GOOGLE_CLIENT_ID=your-google-client-id
+      - GOOGLE_CLIENT_SECRET=your-google-client-secret
+      - GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
+      - CLEVER_CLIENT_ID=your-clever-client-id
+      - CLEVER_CLIENT_SECRET=your-clever-client-secret
+      - CLEVER_REDIRECT_URL=http://localhost:8080/auth/clever/callback
+      - ICLOUD_SERVICE_ID=com.boddle.auth
+      - ICLOUD_TEAM_ID=your-team-id
+      - ICLOUD_KEY_ID=your-key-id
+      - ICLOUD_PRIVATE_KEY_PATH=/secrets/icloud_private_key.p8
+      - ICLOUD_REDIRECT_URL=http://localhost:8080/auth/icloud/callback
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=boddle
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=lmsprod
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boddle -d lmsprod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Adminer (Database UI)
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8081:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    restart: unless-stopped
+
+  # Redis Commander (Redis UI)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

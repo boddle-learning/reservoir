@@ -1,0 +1,355 @@
+# Database Architecture
+
+## Database Entity Relationship Diagram (ERD)
+
+```mermaid
+erDiagram
+    users ||--|| teachers : "has one (meta_type=Teacher)"
+    users ||--|| students : "has one (meta_type=Student)"
+    users ||--|| parents : "has one (meta_type=Parent)"
+    users ||--|| admins : "has one (meta_type=Admin)"
+    users ||--o{ login_tokens : "has many"
+    users ||--o{ login_attempts : "has many"
+    users ||--o{ teacher_logins : "has many"
+    users ||--o{ refresh_tokens : "has many"
+
+    teachers ||--o{ class_rooms_teachers : "teaches many"
+    class_rooms ||--o{ class_rooms_teachers : "taught by many"
+
+    students ||--o{ students_parents : "has many"
+    parents ||--o{ students_parents : "has many"
+
+    class_rooms ||--o{ students : "has many"
+
+    users {
+        int id PK
+        string email UK "unique, indexed"
+        string name
+        string password_digest "bcrypt hashed"
+        string boddle_uid UK "UUID, unique"
+        string meta_type "Teacher|Student|Parent|Admin"
+        int meta_id "FK to meta table"
+        timestamp last_logged_on
+        int last_session_duration "seconds"
+        string timezone
+        int timezone_offset
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    teachers {
+        int id PK
+        string first_name
+        string last_name
+        string google_uid UK "Google OAuth UID"
+        string clever_uid UK "Clever SSO UID"
+        boolean is_verified "email verified"
+        boolean is_premium
+        string school_name
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    students {
+        int id PK
+        string first_name
+        string last_name
+        string google_uid UK
+        string clever_uid UK
+        string icloud_uid UK
+        string display_password "shown to teachers"
+        int grade_level "0-12 (K-12)"
+        string avatar_url
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    parents {
+        int id PK
+        string first_name
+        string last_name
+        string google_uid UK
+        string icloud_uid UK
+        boolean is_verified
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    admins {
+        int id PK
+        boolean is_superAdmin
+        boolean user_manager
+        boolean class_room_manager
+        boolean curriculum_manager
+        boolean analytic_manager
+        int verification_attempts
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    login_tokens {
+        int id PK
+        int user_id FK
+        string secret UK "32-byte random"
+        boolean permanent "false=5min expiry"
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    login_attempts {
+        int id PK
+        int user_id FK
+        string ip_address "IPv4 or IPv6"
+        text user_agent
+        boolean blocked
+        timestamp created_at
+    }
+
+    teacher_logins {
+        int id PK
+        int user_id FK
+        string login_via "EMAIL|GOOGLE|CLEVER"
+        timestamp logged_on
+        timestamp created_at
+    }
+
+    refresh_tokens {
+        int id PK
+        int user_id FK
+        text token UK
+        timestamp expires_at "30 days"
+        boolean revoked
+        string ip_address
+        text user_agent
+        timestamp created_at
+    }
+
+    class_rooms_teachers {
+        int id PK
+        int class_room_id FK
+        int teacher_id FK
+        timestamp created_at
+    }
+
+    students_parents {
+        int id PK
+        int student_id FK
+        int parent_id FK
+        timestamp created_at
+    }
+
+    class_rooms {
+        int id PK
+        string name
+        int grade_level
+        string class_code
+        timestamp created_at
+        timestamp updated_at
+    }
+```
+
+## Database Sharding Strategy (Future)
+
+```mermaid
+graph TB
+    subgraph Client["Application Layer"]
+        GoGateway[Go Auth Gateway]
+        Rails[Rails LMS]
+    end
+
+    subgraph Router["Database Router / Proxy"]
+        ProxySQL[ProxySQL<br/>Query Router<br/>Read/Write Split]
+    end
+
+    subgraph AuthShard["Authentication Shard (Shard 0)"]
+        Auth0Primary[(Primary<br/>users<br/>teachers<br/>students<br/>parents<br/>admins<br/>login_tokens<br/>login_attempts<br/>refresh_tokens)]
+        Auth0Replica[(Replica)]
+    end
+
+    subgraph ContentShard1["Content Shard 1 (Schools 1-1000)"]
+        Content1Primary[(Primary<br/>class_rooms<br/>assignments<br/>grades<br/>activities)]
+        Content1Replica[(Replica)]
+    end
+
+    subgraph ContentShard2["Content Shard 2 (Schools 1001-2000)"]
+        Content2Primary[(Primary<br/>class_rooms<br/>assignments<br/>grades<br/>activities)]
+        Content2Replica[(Replica)]
+    end
+
+    subgraph ContentShard3["Content Shard 3 (Schools 2001-3000)"]
+        Content3Primary[(Primary<br/>class_rooms<br/>assignments<br/>grades<br/>activities)]
+        Content3Replica[(Replica)]
+    end
+
+    GoGateway -->|Reads/Writes| ProxySQL
+    Rails -->|Reads/Writes| ProxySQL
+
+    ProxySQL -->|Auth Queries| Auth0Primary
+    ProxySQL -->|Auth Reads| Auth0Replica
+
+    ProxySQL -->|School 1-1000| Content1Primary
+    ProxySQL -->|Reads| Content1Replica
+
+    ProxySQL -->|School 1001-2000| Content2Primary
+    ProxySQL -->|Reads| Content2Replica
+
+    ProxySQL -->|School 2001-3000| Content3Primary
+    ProxySQL -->|Reads| Content3Replica
+
+    Auth0Primary -.->|Replicate| Auth0Replica
+    Content1Primary -.->|Replicate| Content1Replica
+    Content2Primary -.->|Replicate| Content2Replica
+    Content3Primary -.->|Replicate| Content3Replica
+
+    style AuthShard fill:#c8e6c9
+    style ContentShard1 fill:#e1f5fe
+    style ContentShard2 fill:#fff3e0
+    style ContentShard3 fill:#ffccbc
+```
+
+## Connection Pooling Architecture
+
+```mermaid
+graph TB
+    subgraph Apps["Application Instances"]
+        Go1[Go Gateway 1]
+        Go2[Go Gateway 2]
+        Go3[Go Gateway 3]
+        Rails1[Rails Instance 1]
+        Rails2[Rails Instance 2]
+        Rails3[Rails Instance 3]
+    end
+
+    subgraph ConnectionPools["Connection Pools"]
+        GoPool1[sqlx Pool<br/>Max: 50 conns<br/>Idle: 25 conns]
+        GoPool2[sqlx Pool<br/>Max: 50 conns<br/>Idle: 25 conns]
+        GoPool3[sqlx Pool<br/>Max: 50 conns<br/>Idle: 25 conns]
+        RailsPool1[ActiveRecord Pool<br/>Max: 25 conns<br/>Timeout: 5s]
+        RailsPool2[ActiveRecord Pool<br/>Max: 25 conns<br/>Timeout: 5s]
+        RailsPool3[ActiveRecord Pool<br/>Max: 25 conns<br/>Timeout: 5s]
+    end
+
+    subgraph PGBouncer["PgBouncer (Connection Pooler)"]
+        Bouncer[PgBouncer<br/>Mode: Transaction<br/>Max Client Conns: 1000<br/>Max Server Conns: 200]
+    end
+
+    subgraph Database["PostgreSQL"]
+        PG[(PostgreSQL<br/>max_connections: 200<br/>shared_buffers: 4GB)]
+    end
+
+    Go1 --> GoPool1
+    Go2 --> GoPool2
+    Go3 --> GoPool3
+    Rails1 --> RailsPool1
+    Rails2 --> RailsPool2
+    Rails3 --> RailsPool3
+
+    GoPool1 & GoPool2 & GoPool3 -->|~150 conns| Bouncer
+    RailsPool1 & RailsPool2 & RailsPool3 -->|~75 conns| Bouncer
+
+    Bouncer -->|200 conns| PG
+
+    style ConnectionPools fill:#c8e6c9
+    style PGBouncer fill:#fff9c4
+    style Database fill:#e1f5fe
+```
+
+## Backup and Disaster Recovery
+
+```mermaid
+graph TB
+    subgraph Production["Production Database"]
+        Primary[(PostgreSQL Primary<br/>Real-time)]
+    end
+
+    subgraph Replication["Streaming Replication"]
+        Replica1[(Replica 1<br/>Same Region<br/>Lag: <1s)]
+        Replica2[(Replica 2<br/>Different AZ<br/>Lag: <1s)]
+    end
+
+    subgraph Backups["Backup Strategy"]
+        ContinuousWAL[Continuous WAL Archiving<br/>Every 5 minutes<br/>Stored in S3]
+        DailySnapshot[Daily Full Snapshot<br/>11:00 PM UTC<br/>Retention: 30 days]
+        WeeklySnapshot[Weekly Full Backup<br/>Sunday<br/>Retention: 90 days]
+        MonthlySnapshot[Monthly Archive<br/>First of month<br/>Retention: 1 year]
+    end
+
+    subgraph DisasterRecovery["Disaster Recovery"]
+        DRSite[(DR Site<br/>Different Region<br/>Lag: <30s<br/>Async Replication)]
+    end
+
+    subgraph Testing["Backup Testing"]
+        TestRestore[Automated Restore Test<br/>Weekly<br/>Verify data integrity]
+    end
+
+    Primary -->|Streaming| Replica1
+    Primary -->|Streaming| Replica2
+    Primary -->|Async| DRSite
+
+    Primary -->|WAL Files| ContinuousWAL
+    Primary -->|pg_basebackup| DailySnapshot
+    Primary -->|pg_dump| WeeklySnapshot
+    Primary -->|Full Export| MonthlySnapshot
+
+    ContinuousWAL -->|S3 Glacier| Storage[(S3 Glacier<br/>Long-term Archive)]
+    DailySnapshot -->|S3| Storage
+    WeeklySnapshot -->|S3| Storage
+    MonthlySnapshot -->|S3 Glacier| Storage
+
+    DailySnapshot -.->|Restore Test| TestRestore
+    WeeklySnapshot -.->|Restore Test| TestRestore
+
+    style Production fill:#c8e6c9
+    style Replication fill:#fff9c4
+    style Backups fill:#e1f5fe
+    style DisasterRecovery fill:#ffccbc
+    style Testing fill:#f3e5f5
+```
+
+## Data Retention and Archival
+
+```mermaid
+graph TB
+    subgraph HotData["Hot Data (Primary DB)"]
+        ActiveUsers[Active Users<br/>Last 3 months activity]
+        RecentLogins[Login Attempts<br/>Last 30 days]
+        ActiveTokens[Refresh Tokens<br/>Not expired]
+    end
+
+    subgraph WarmData["Warm Data (Read Replicas)"]
+        OldUsers[Inactive Users<br/>3-12 months]
+        OldLogins[Old Login Attempts<br/>30-90 days]
+    end
+
+    subgraph ColdData["Cold Data (Archive)"]
+        ArchivedUsers[Archived Users<br/>>12 months inactive]
+        ArchivedLogs[Archived Logs<br/>>90 days]
+        DeletedAccounts[Deleted Accounts<br/>GDPR compliance]
+    end
+
+    subgraph ArchivalProcess["Archival Jobs"]
+        NightlyJob[Nightly Archival Job<br/>2:00 AM UTC<br/>Move warm → cold]
+        WeeklyCleanup[Weekly Cleanup<br/>Sunday 3:00 AM<br/>Purge old data]
+        MonthlyExport[Monthly Export<br/>Full data export to S3]
+    end
+
+    ActiveUsers -->|After 3 months| WarmData
+    RecentLogins -->|After 30 days| WarmData
+
+    WarmData -->|After 12 months| ColdData
+
+    NightlyJob -.->|Execute| WarmData
+    NightlyJob -.->|Execute| ColdData
+
+    WeeklyCleanup -.->|Delete| RecentLogins
+    WeeklyCleanup -.->|Delete| ActiveTokens
+
+    MonthlyExport -.->|Backup| ColdData
+
+    ColdData -->|Store| S3[(S3 Bucket<br/>Compressed<br/>Encrypted)]
+
+    style HotData fill:#c8e6c9
+    style WarmData fill:#fff9c4
+    style ColdData fill:#e1f5fe
+    style ArchivalProcess fill:#ffccbc
+```

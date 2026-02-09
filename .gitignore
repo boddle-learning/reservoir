@@ -1,0 +1,66 @@
+# Binaries
+reservoir
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary and coverage
+*.test
+*.out
+coverage.txt
+*.coverprofile
+
+# Output of the go coverage tool
+*.cover
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Database
+*.db
+*.sqlite
+
+# Build output
+dist/
+build/
+
+# Secrets
+secrets/
+*.pem
+*.p8
+*.key
+
+# Docker
+.dockerignore
+
+# Generated files
+docs/diagrams/images/

@@ -1,0 +1,190 @@
+# System Architecture - High Level
+
+## Complete System Architecture
+
+```mermaid
+graph TB
+    subgraph Internet["Internet / Public Access"]
+        Users[End Users<br/>Web, Mobile, Game]
+    end
+
+    subgraph LoadBalancer["Load Balancer / CDN"]
+        LB[Nginx / CloudFlare<br/>SSL Termination]
+    end
+
+    subgraph AuthGateway["Go Authentication Gateway - Reservoir<br/>Port: 8080<br/>Replicas: 3"]
+        GW1[Instance 1]
+        GW2[Instance 2]
+        GW3[Instance 3]
+    end
+
+    subgraph RailsCluster["Rails LMS Application<br/>Port: 3000<br/>Replicas: 5"]
+        R1[Rails Instance 1]
+        R2[Rails Instance 2]
+        R3[Rails Instance 3]
+        R4[Rails Instance 4]
+        R5[Rails Instance 5]
+    end
+
+    subgraph GameCluster["Game API<br/>Port: 4000<br/>Replicas: 3"]
+        G1[Game Instance 1]
+        G2[Game Instance 2]
+        G3[Game Instance 3]
+    end
+
+    subgraph Database["Database Layer"]
+        PGPrimary[(PostgreSQL Primary<br/>Read/Write)]
+        PGReplica1[(PostgreSQL Replica 1<br/>Read Only)]
+        PGReplica2[(PostgreSQL Replica 2<br/>Read Only)]
+        RedisCluster[Redis Cluster<br/>Rate Limiting<br/>Token Blacklist<br/>Session Cache]
+    end
+
+    subgraph External["External Services"]
+        Google[Google OAuth2<br/>accounts.google.com]
+        Clever[Clever SSO<br/>clever.com]
+        Apple[Apple Sign In<br/>appleid.apple.com]
+    end
+
+    subgraph Monitoring["Monitoring & Observability"]
+        Prometheus[Prometheus<br/>Metrics Collection]
+        Grafana[Grafana<br/>Dashboards]
+        Sentry[Sentry<br/>Error Tracking]
+        ELK[ELK Stack<br/>Logs]
+    end
+
+    Users -->|HTTPS| LB
+    LB -->|Auth Requests| AuthGateway
+    LB -->|App Requests| RailsCluster
+    LB -->|Game Requests| GameCluster
+
+    GW1 & GW2 & GW3 -->|JWT Issue| AuthGateway
+
+    AuthGateway -->|Writes| PGPrimary
+    AuthGateway -->|Rate Limit| RedisCluster
+    AuthGateway -->|OAuth| External
+
+    RailsCluster -->|Read/Write| PGPrimary
+    RailsCluster -->|Read| PGReplica1
+    RailsCluster -->|Read| PGReplica2
+    RailsCluster -->|JWT Blacklist Check| RedisCluster
+
+    GameCluster -->|Read| PGReplica1
+    GameCluster -->|JWT Blacklist Check| RedisCluster
+
+    PGPrimary -.->|Replication| PGReplica1
+    PGPrimary -.->|Replication| PGReplica2
+
+    AuthGateway -->|Metrics| Prometheus
+    RailsCluster -->|Metrics| Prometheus
+    GameCluster -->|Metrics| Prometheus
+
+    Prometheus -->|Query| Grafana
+
+    AuthGateway -->|Errors| Sentry
+    RailsCluster -->|Errors| Sentry
+    GameCluster -->|Errors| Sentry
+
+    AuthGateway -->|Logs| ELK
+    RailsCluster -->|Logs| ELK
+    GameCluster -->|Logs| ELK
+
+    style AuthGateway fill:#c8e6c9
+    style RailsCluster fill:#e1f5fe
+    style GameCluster fill:#fff3e0
+    style Database fill:#fff9c4
+    style External fill:#ffccbc
+    style Monitoring fill:#f3e5f5
+```
+
+## Network Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant CDN as CloudFlare CDN
+    participant LB as Load Balancer
+    participant Go as Go Auth Gateway
+    participant Rails as Rails LMS
+    participant PG as PostgreSQL
+    participant Redis
+
+    Note over User,Redis: Authentication Flow
+
+    User->>CDN: 1. Login Request (HTTPS)
+    CDN->>LB: 2. Forward to LB
+    LB->>Go: 3. Route to Go Gateway
+    Go->>Redis: 4. Check rate limit
+    Go->>PG: 5. Verify credentials
+    Go->>Redis: 6. Store OAuth state
+    Go-->>User: 7. Return JWT token
+
+    Note over User,Redis: API Request Flow
+
+    User->>CDN: 8. API Request + JWT
+    CDN->>LB: 9. Forward to LB
+    LB->>Rails: 10. Route to Rails
+    Rails->>Redis: 11. Check JWT blacklist
+    Rails->>PG: 12. Fetch data
+    Rails-->>User: 13. Return response
+```
+
+## Data Flow Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client["Client Layer"]
+        Browser[Web Browser]
+        Mobile[Mobile App]
+        Game[Game Client]
+    end
+
+    subgraph Gateway["Go Auth Gateway"]
+        Auth[Authentication<br/>Handler]
+        JWT[JWT<br/>Service]
+        Rate[Rate<br/>Limiter]
+    end
+
+    subgraph Cache["Cache Layer"]
+        Redis[(Redis)]
+    end
+
+    subgraph Database["Database Layer"]
+        Primary[(PostgreSQL<br/>Primary)]
+        Replica[(PostgreSQL<br/>Replica)]
+    end
+
+    subgraph Application["Application Layer"]
+        Rails[Rails LMS]
+        GameAPI[Game API]
+    end
+
+    Browser -->|Login| Auth
+    Mobile -->|Login| Auth
+    Game -->|Login| Auth
+
+    Auth -->|Check| Rate
+    Rate -->|INCR| Redis
+
+    Auth -->|Query| Primary
+    Auth -->|Generate| JWT
+
+    JWT -->|Return| Browser
+    JWT -->|Return| Mobile
+    JWT -->|Return| Game
+
+    Browser -->|API + JWT| Rails
+    Mobile -->|API + JWT| Rails
+    Game -->|API + JWT| GameAPI
+
+    Rails -->|Validate| Redis
+    GameAPI -->|Validate| Redis
+
+    Rails -->|Read| Replica
+    Rails -->|Write| Primary
+    GameAPI -->|Read| Replica
+
+    style Gateway fill:#c8e6c9
+    style Cache fill:#ffccbc
+    style Database fill:#fff9c4
+    style Application fill:#e1f5fe
+```

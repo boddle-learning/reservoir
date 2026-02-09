@@ -1,0 +1,384 @@
+# Monitoring and Observability
+
+## Monitoring Stack Architecture
+
+```mermaid
+graph TB
+    subgraph Applications["Application Layer"]
+        Go[Go Auth Gateway<br/>Port: 8080]
+        Rails[Rails LMS<br/>Port: 3000]
+        Game[Game API<br/>Port: 4000]
+    end
+
+    subgraph MetricsCollection["Metrics Collection"]
+        PrometheusServer[Prometheus<br/>Scrape Interval: 15s<br/>Retention: 30 days]
+
+        subgraph Exporters["Exporters"]
+            NodeExporter[Node Exporter<br/>Host metrics]
+            PGExporter[PostgreSQL Exporter<br/>DB metrics]
+            RedisExporter[Redis Exporter<br/>Cache metrics]
+        end
+    end
+
+    subgraph LogCollection["Log Aggregation"]
+        FluentBit[Fluent Bit<br/>Log Shipper]
+        Elasticsearch[(Elasticsearch<br/>Log Storage<br/>Retention: 7 days)]
+        Kibana[Kibana<br/>Log Search UI]
+    end
+
+    subgraph Tracing["Distributed Tracing"]
+        Jaeger[Jaeger<br/>Trace Collection<br/>Sampling: 10%]
+    end
+
+    subgraph Visualization["Dashboards"]
+        Grafana[Grafana<br/>Metrics Visualization]
+
+        subgraph Dashboards["Pre-built Dashboards"]
+            AuthDash[Auth Gateway Dashboard<br/>- Login rate<br/>- JWT issuance<br/>- Rate limit hits]
+            RailsDash[Rails Dashboard<br/>- API latency<br/>- Error rate<br/>- Throughput]
+            DBDash[Database Dashboard<br/>- Connection pool<br/>- Query performance<br/>- Replication lag]
+            RedisDash[Redis Dashboard<br/>- Hit rate<br/>- Memory usage<br/>- Commands/sec]
+        end
+    end
+
+    subgraph Alerting["Alerting"]
+        AlertManager[Alert Manager<br/>Route & Deduplicate]
+
+        subgraph Channels["Notification Channels"]
+            Slack[Slack<br/>#alerts channel]
+            PagerDuty[PagerDuty<br/>On-call rotation]
+            Email[Email<br/>Team notifications]
+        end
+    end
+
+    subgraph ErrorTracking["Error Tracking"]
+        Sentry[Sentry<br/>Error aggregation<br/>Release tracking]
+    end
+
+    Go -->|/metrics endpoint| PrometheusServer
+    Rails -->|/metrics endpoint| PrometheusServer
+    Game -->|/metrics endpoint| PrometheusServer
+
+    NodeExporter -->|Host stats| PrometheusServer
+    PGExporter -->|DB stats| PrometheusServer
+    RedisExporter -->|Redis stats| PrometheusServer
+
+    Go -->|Logs| FluentBit
+    Rails -->|Logs| FluentBit
+    Game -->|Logs| FluentBit
+
+    FluentBit -->|Ship| Elasticsearch
+    Elasticsearch -->|Query| Kibana
+
+    Go -->|Traces| Jaeger
+    Rails -->|Traces| Jaeger
+    Game -->|Traces| Jaeger
+
+    PrometheusServer -->|Query| Grafana
+    Grafana --> AuthDash
+    Grafana --> RailsDash
+    Grafana --> DBDash
+    Grafana --> RedisDash
+
+    PrometheusServer -->|Rules| AlertManager
+    AlertManager -->|Notify| Slack
+    AlertManager -->|Page| PagerDuty
+    AlertManager -->|Send| Email
+
+    Go -->|Errors| Sentry
+    Rails -->|Errors| Sentry
+    Game -->|Errors| Sentry
+
+    style MetricsCollection fill:#c8e6c9
+    style LogCollection fill:#fff9c4
+    style Visualization fill:#e1f5fe
+    style Alerting fill:#ffccbc
+    style ErrorTracking fill:#f3e5f5
+```
+
+## Grafana Dashboard Layout
+
+```mermaid
+graph TB
+    subgraph Dashboard["Auth Gateway Dashboard"]
+        subgraph Row1["Row 1: Overview"]
+            TotalLogins[Total Logins<br/>Counter<br/>auth_login_attempts_total]
+            SuccessRate[Success Rate %<br/>Gauge<br/>success / total * 100]
+            ActiveUsers[Active Users<br/>Gauge<br/>Unique users last 5m]
+            P99Latency[P99 Latency<br/>Graph<br/>auth_login_duration_seconds]
+        end
+
+        subgraph Row2["Row 2: Login Methods"]
+            EmailLogins[Email/Password<br/>Time Series<br/>method=email]
+            GoogleLogins[Google OAuth<br/>Time Series<br/>method=google]
+            CleverLogins[Clever SSO<br/>Time Series<br/>method=clever]
+            TokenLogins[Login Tokens<br/>Time Series<br/>method=token]
+        end
+
+        subgraph Row3["Row 3: Security"]
+            RateLimitHits[Rate Limit Hits<br/>Time Series<br/>auth_rate_limit_hits_total]
+            FailedLogins[Failed Logins<br/>Time Series<br/>status=failure]
+            BlockedIPs[Blocked IPs<br/>Counter<br/>status=blocked]
+            JWTValidations[JWT Validations<br/>Time Series<br/>auth_jwt_validated_total]
+        end
+
+        subgraph Row4["Row 4: Performance"]
+            RequestDuration[Request Duration<br/>Heatmap<br/>All percentiles]
+            Throughput[Throughput<br/>Graph<br/>requests per second]
+            ErrorRate[Error Rate<br/>Graph<br/>5xx errors]
+            Saturation[Saturation<br/>Graph<br/>CPU, Memory, Goroutines]
+        end
+
+        subgraph Row5["Row 5: Dependencies"]
+            DBLatency[Database Latency<br/>Graph<br/>Query duration]
+            DBConnections[DB Connections<br/>Graph<br/>Active, Idle, Max]
+            RedisLatency[Redis Latency<br/>Graph<br/>Command duration]
+            RedisHitRate[Redis Hit Rate<br/>Gauge<br/>hits / (hits + misses)]
+        end
+    end
+
+    style Row1 fill:#c8e6c9
+    style Row2 fill:#fff9c4
+    style Row3 fill:#ffccbc
+    style Row4 fill:#e1f5fe
+    style Row5 fill:#f3e5f5
+```
+
+## Alert Rules and SLOs
+
+```mermaid
+graph TB
+    subgraph SLO["Service Level Objectives"]
+        Availability[Availability SLO<br/>Target: 99.9%<br/>Error Budget: 43 min/month]
+        Latency[Latency SLO<br/>P95 < 500ms<br/>P99 < 1s]
+        Throughput[Throughput SLO<br/>> 1000 req/s]
+    end
+
+    subgraph CriticalAlerts["Critical Alerts (Page immediately)"]
+        HighErrorRate[Error Rate > 5%<br/>For 5 minutes<br/>Severity: critical]
+        ServiceDown[Service Down<br/>All instances unhealthy<br/>Severity: critical]
+        DBDown[Database Unreachable<br/>For 1 minute<br/>Severity: critical]
+        HighLatency[P99 > 2s<br/>For 10 minutes<br/>Severity: critical]
+    end
+
+    subgraph WarningAlerts["Warning Alerts (Notify only)"]
+        MediumErrorRate[Error Rate > 2%<br/>For 10 minutes<br/>Severity: warning]
+        HighCPU[CPU > 80%<br/>For 15 minutes<br/>Severity: warning]
+        HighMemory[Memory > 85%<br/>For 15 minutes<br/>Severity: warning]
+        DiskSpace[Disk > 85% full<br/>Severity: warning]
+    end
+
+    subgraph InfoAlerts["Info Alerts (Log only)"]
+        DeploymentStart[Deployment Started<br/>Severity: info]
+        DeploymentComplete[Deployment Complete<br/>Severity: info]
+        ScaleUp[Auto-scaled Up<br/>Severity: info]
+        ScaleDown[Auto-scaled Down<br/>Severity: info]
+    end
+
+    subgraph Actions["Alert Actions"]
+        Page[PagerDuty<br/>On-call engineer]
+        SlackCritical[Slack #critical-alerts]
+        SlackWarning[Slack #warnings]
+        Runbook[Link to Runbook<br/>Troubleshooting steps]
+    end
+
+    Availability -.->|Monitors| HighErrorRate
+    Latency -.->|Monitors| HighLatency
+    Throughput -.->|Monitors| ServiceDown
+
+    HighErrorRate -->|Trigger| Page
+    ServiceDown -->|Trigger| Page
+    DBDown -->|Trigger| Page
+    HighLatency -->|Trigger| Page
+
+    CriticalAlerts -->|Notify| SlackCritical
+    WarningAlerts -->|Notify| SlackWarning
+
+    Page -->|Include| Runbook
+    SlackCritical -->|Include| Runbook
+
+    style CriticalAlerts fill:#ffccbc
+    style WarningAlerts fill:#fff9c4
+    style InfoAlerts fill:#e1f5fe
+    style SLO fill:#c8e6c9
+```
+
+## Distributed Tracing Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Gateway as Go Auth Gateway
+    participant Redis
+    participant DB as PostgreSQL
+    participant Rails as Rails LMS
+    participant Jaeger
+
+    Note over User,Jaeger: Trace ID: abc123 generated
+
+    User->>Gateway: POST /auth/login<br/>Trace-ID: abc123
+    activate Gateway
+    Gateway->>Jaeger: Span 1: auth.login START
+
+    Gateway->>Redis: INCR rate_limit:...<br/>Trace-ID: abc123, Span-ID: 1.1
+    activate Redis
+    Gateway->>Jaeger: Span 1.1: redis.ratelimit START
+    Redis-->>Gateway: count=2
+    deactivate Redis
+    Gateway->>Jaeger: Span 1.1: redis.ratelimit END (2ms)
+
+    Gateway->>DB: SELECT * FROM users...<br/>Trace-ID: abc123, Span-ID: 1.2
+    activate DB
+    Gateway->>Jaeger: Span 1.2: db.query START
+    DB-->>Gateway: User record
+    deactivate DB
+    Gateway->>Jaeger: Span 1.2: db.query END (5ms)
+
+    Gateway->>Gateway: Verify password (bcrypt)
+    Gateway->>Jaeger: Span 1.3: bcrypt.compare START
+    Gateway->>Jaeger: Span 1.3: bcrypt.compare END (20ms)
+
+    Gateway->>Gateway: Generate JWT
+    Gateway->>Jaeger: Span 1.4: jwt.generate START
+    Gateway->>Jaeger: Span 1.4: jwt.generate END (1ms)
+
+    Gateway-->>User: 200 OK {token: "..."}
+    deactivate Gateway
+    Gateway->>Jaeger: Span 1: auth.login END (28ms total)
+
+    User->>Rails: GET /api/classrooms<br/>Authorization: Bearer ...<br/>Trace-ID: abc123
+    activate Rails
+    Rails->>Jaeger: Span 2: rails.api.classrooms START
+
+    Rails->>Redis: EXISTS blacklist:...<br/>Trace-ID: abc123, Span-ID: 2.1
+    activate Redis
+    Rails->>Jaeger: Span 2.1: redis.blacklist START
+    Redis-->>Rails: 0 (not blacklisted)
+    deactivate Redis
+    Rails->>Jaeger: Span 2.1: redis.blacklist END (1ms)
+
+    Rails->>DB: SELECT * FROM classrooms...<br/>Trace-ID: abc123, Span-ID: 2.2
+    activate DB
+    Rails->>Jaeger: Span 2.2: db.query START
+    DB-->>Rails: Classroom data
+    deactivate DB
+    Rails->>Jaeger: Span 2.2: db.query END (8ms)
+
+    Rails-->>User: 200 OK {classrooms: [...]}
+    deactivate Rails
+    Rails->>Jaeger: Span 2: rails.api.classrooms END (9ms total)
+
+    Note over Jaeger: Full trace: 37ms total<br/>Span 1: 28ms (Go)<br/>Span 2: 9ms (Rails)
+```
+
+## Log Aggregation Flow
+
+```mermaid
+graph LR
+    subgraph Sources["Log Sources"]
+        GoApp[Go Gateway<br/>stdout/stderr<br/>JSON format]
+        RailsApp[Rails LMS<br/>log/production.log<br/>Rails logger]
+        Nginx[Nginx<br/>/var/log/nginx/access.log]
+        System[System Logs<br/>/var/log/syslog]
+    end
+
+    subgraph Collection["Log Collection"]
+        FluentBit[Fluent Bit Agent<br/>- Parse JSON<br/>- Add metadata<br/>- Buffer locally]
+    end
+
+    subgraph Processing["Log Processing"]
+        Logstash[Logstash<br/>- Parse patterns<br/>- Enrich data<br/>- Filter sensitive info]
+    end
+
+    subgraph Storage["Storage & Search"]
+        ES[(Elasticsearch<br/>- Index logs<br/>- 7 day retention<br/>- 3 replicas)]
+    end
+
+    subgraph Visualization["Visualization"]
+        Kibana[Kibana<br/>- Search UI<br/>- Log patterns<br/>- Saved searches]
+    end
+
+    subgraph Alerting["Log-based Alerts"]
+        ElastAlert[ElastAlert<br/>- Error spike detection<br/>- Pattern matching<br/>- Anomaly detection]
+    end
+
+    GoApp -->|Stream| FluentBit
+    RailsApp -->|Tail| FluentBit
+    Nginx -->|Tail| FluentBit
+    System -->|Tail| FluentBit
+
+    FluentBit -->|Forward| Logstash
+    Logstash -->|Index| ES
+    ES -->|Query| Kibana
+    ES -->|Monitor| ElastAlert
+
+    ElastAlert -->|Alert| Slack[Slack #logs-alerts]
+
+    style Collection fill:#c8e6c9
+    style Processing fill:#fff9c4
+    style Storage fill:#e1f5fe
+    style Visualization fill:#f3e5f5
+    style Alerting fill:#ffccbc
+```
+
+## Health Check Architecture
+
+```mermaid
+graph TB
+    subgraph LoadBalancer["Load Balancer"]
+        ALB[Application Load Balancer<br/>Health Check Interval: 10s<br/>Timeout: 5s<br/>Healthy Threshold: 2<br/>Unhealthy Threshold: 3]
+    end
+
+    subgraph GoInstances["Go Gateway Instances"]
+        Go1[Instance 1<br/>:8080/health]
+        Go2[Instance 2<br/>:8080/health]
+        Go3[Instance 3<br/>:8080/health]
+    end
+
+    subgraph HealthCheck["Health Check Handler"]
+        HTTP[HTTP Handler<br/>GET /health]
+
+        subgraph Checks["Dependency Checks"]
+            DBCheck[PostgreSQL<br/>SELECT 1]
+            RedisCheck[Redis<br/>PING]
+            DiskCheck[Disk Space<br/>> 10% free]
+            MemCheck[Memory<br/>< 90% used]
+        end
+    end
+
+    subgraph Response["Health Response"]
+        Healthy[200 OK<br/>{<br/>  status: healthy,<br/>  database: up,<br/>  redis: up,<br/>  timestamp: ...<br/>}]
+
+        Degraded[200 OK<br/>{<br/>  status: degraded,<br/>  database: up,<br/>  redis: slow,<br/>  latency_ms: 150<br/>}]
+
+        Unhealthy[503 Service Unavailable<br/>{<br/>  status: unhealthy,<br/>  database: down,<br/>  redis: up<br/>}]
+    end
+
+    subgraph Monitoring["Health Monitoring"]
+        Prometheus[Prometheus<br/>Scrape /health/metrics]
+        Grafana[Grafana<br/>Health Dashboard]
+        Alert[Alert on unhealthy<br/>PagerDuty]
+    end
+
+    ALB -->|Check every 10s| Go1
+    ALB -->|Check every 10s| Go2
+    ALB -->|Check every 10s| Go3
+
+    Go1 & Go2 & Go3 --> HTTP
+    HTTP --> Checks
+
+    Checks -->|All pass| Healthy
+    Checks -->|Partial pass| Degraded
+    Checks -->|Critical fail| Unhealthy
+
+    Healthy & Degraded -->|Route traffic| ALB
+    Unhealthy -->|Remove from pool| ALB
+
+    Go1 & Go2 & Go3 -->|Expose metrics| Prometheus
+    Prometheus -->|Visualize| Grafana
+    Grafana -->|Alert| Alert
+
+    style HealthCheck fill:#c8e6c9
+    style Response fill:#fff9c4
+    style Monitoring fill:#e1f5fe
+```
