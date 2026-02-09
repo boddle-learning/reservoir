@@ -78,10 +78,14 @@ func main() {
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
 	cleverService := oauth.NewCleverService(cfg.Clever, oauthStateManager)
+
+	// iCloud service is optional (requires private key file)
 	icloudService, err := oauth.NewiCloudService(cfg.ICloud, oauthStateManager)
 	if err != nil {
-		logger.Fatal("Failed to initialize iCloud service", zap.Error(err))
+		logger.Warn("iCloud service not initialized (private key not found)", zap.Error(err))
+		icloudService = nil
 	}
+
 	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, icloudService)
 
 	// Initialize handlers
@@ -119,9 +123,13 @@ func main() {
 		authGroup.GET("/google/callback", oauthHandler.GoogleCallback)
 		authGroup.GET("/clever", oauthHandler.CleverLogin)
 		authGroup.GET("/clever/callback", oauthHandler.CleverCallback)
-		authGroup.GET("/icloud", oauthHandler.iCloudLogin)
-		authGroup.POST("/icloud/callback", oauthHandler.iCloudCallback)
-		authGroup.GET("/icloud/callback", oauthHandler.iCloudCallback) // Support GET for testing
+
+		// iCloud routes (only if service is initialized)
+		if icloudService != nil {
+			authGroup.GET("/icloud", oauthHandler.ICloudLogin)
+			authGroup.POST("/icloud/callback", oauthHandler.ICloudCallback)
+			authGroup.GET("/icloud/callback", oauthHandler.ICloudCallback) // Support GET for testing
+		}
 
 		// Protected routes (require authentication)
 		authGroup.Use(middleware.Auth(authService))

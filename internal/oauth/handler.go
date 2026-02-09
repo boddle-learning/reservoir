@@ -142,9 +142,9 @@ func (h *Handler) CleverCallback(c *gin.Context) {
 	})
 }
 
-// iCloudLogin initiates iCloud Sign In flow
+// ICloudLogin initiates iCloud Sign In flow
 // GET /auth/icloud?redirect_url=...
-func (h *Handler) iCloudLogin(c *gin.Context) {
+func (h *Handler) ICloudLogin(c *gin.Context) {
 	redirectURL := c.Query("redirect_url")
 	if redirectURL == "" {
 		redirectURL = "/" // Default redirect
@@ -161,10 +161,10 @@ func (h *Handler) iCloudLogin(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, authURL)
 }
 
-// iCloudCallback handles iCloud Sign In callback
+// ICloudCallback handles iCloud Sign In callback
 // POST /auth/icloud/callback (Apple uses form_post)
 // Note: Apple sends the callback as a POST with form data
-func (h *Handler) iCloudCallback(c *gin.Context) {
+func (h *Handler) ICloudCallback(c *gin.Context) {
 	// iCloud sends callback as POST with form data
 	code := c.PostForm("code")
 	state := c.PostForm("state")

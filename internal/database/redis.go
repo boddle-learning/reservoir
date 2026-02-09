@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/boddle/reservoir/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 

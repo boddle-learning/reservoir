@@ -28,7 +28,7 @@ type iCloudService struct {
 }
 
 // NewiCloudService creates a new iCloud Sign In service
-func NewiCloudService(cfg config.iCloudConfig, stateManager *StateManager) (*iCloudService, error) {
+func NewiCloudService(cfg config.ICloudConfig, stateManager *StateManager) (*iCloudService, error) {
 	// Load Apple private key
 	privateKey, err := loadApplePrivateKey(cfg.PrivateKeyPath)
 	if err != nil {
