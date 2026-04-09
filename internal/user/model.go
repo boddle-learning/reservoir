@@ -8,6 +8,7 @@ import (
 // User represents the users table (polymorphic base)
 type User struct {
 	ID             int            `db:"id" json:"id"`
+	Name           string         `db:"name" json:"name"`
 	Email          string         `db:"email" json:"email"`
 	PasswordDigest string         `db:"password_digest" json:"-"`
 	BoddleUID      sql.NullString `db:"boddle_uid" json:"boddle_uid,omitempty"`
@@ -21,34 +22,32 @@ type User struct {
 // Teacher represents the teachers table
 type Teacher struct {
 	ID         int            `db:"id" json:"id"`
-	UserID     int            `db:"user_id" json:"user_id"`
 	FirstName  string         `db:"first_name" json:"first_name"`
 	LastName   string         `db:"last_name" json:"last_name"`
 	GoogleUID  sql.NullString `db:"google_uid" json:"google_uid,omitempty"`
 	CleverUID  sql.NullString `db:"clever_uid" json:"clever_uid,omitempty"`
-	Verified   bool           `db:"verified" json:"verified"`
+	IsVerified bool           `db:"is_verified" json:"is_verified"`
 	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt  time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // Student represents the students table
+// Note: students don't have first_name/last_name/username columns.
+// The display name comes from users.name via the polymorphic association.
 type Student struct {
-	ID        int            `db:"id" json:"id"`
-	UserID    int            `db:"user_id" json:"user_id"`
-	Username  string         `db:"username" json:"username"`
-	FirstName string         `db:"first_name" json:"first_name"`
-	LastName  string         `db:"last_name" json:"last_name"`
-	GoogleUID sql.NullString `db:"google_uid" json:"google_uid,omitempty"`
-	CleverUID sql.NullString `db:"clever_uid" json:"clever_uid,omitempty"`
-	ICloudUID sql.NullString `db:"icloud_uid" json:"icloud_uid,omitempty"`
-	CreatedAt time.Time      `db:"created_at" json:"created_at"`
-	UpdatedAt time.Time      `db:"updated_at" json:"updated_at"`
+	ID                int            `db:"id" json:"id"`
+	GameCharacterName sql.NullString `db:"game_character_name" json:"game_character_name,omitempty"`
+	GoogleUID         sql.NullString `db:"google_uid" json:"google_uid,omitempty"`
+	CleverUID         sql.NullString `db:"clever_uid" json:"clever_uid,omitempty"`
+	ICloudUID         sql.NullString `db:"icloud_uid" json:"icloud_uid,omitempty"`
+	ParentID          sql.NullInt64  `db:"parent_id" json:"parent_id,omitempty"`
+	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // Parent represents the parents table
 type Parent struct {
 	ID        int            `db:"id" json:"id"`
-	UserID    int            `db:"user_id" json:"user_id"`
 	FirstName string         `db:"first_name" json:"first_name"`
 	LastName  string         `db:"last_name" json:"last_name"`
 	ICloudUID sql.NullString `db:"icloud_uid" json:"icloud_uid,omitempty"`
@@ -80,16 +79,18 @@ type UserWithMeta struct {
 	Meta   interface{} // Can be Teacher, Student, or Parent
 }
 
-// GetFullName returns the full name based on meta type
+// GetFullName returns the full name based on meta type.
+// Teachers and Parents have first_name/last_name on their own tables.
+// Students do not — their name comes from users.name.
 func (u *UserWithMeta) GetFullName() string {
 	switch meta := u.Meta.(type) {
 	case *Teacher:
 		return meta.FirstName + " " + meta.LastName
 	case *Student:
-		return meta.FirstName + " " + meta.LastName
+		return u.User.Name
 	case *Parent:
 		return meta.FirstName + " " + meta.LastName
 	default:
-		return ""
+		return u.User.Name
 	}
 }
