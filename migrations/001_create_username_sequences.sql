@@ -10,8 +10,9 @@ CREATE TABLE IF NOT EXISTS username_sequences (
 -- Add a UNIQUE constraint on students.username as a DB-level safety net against
 -- duplicate usernames. The application layer prevents duplicates via the atomic
 -- upsert + IsUsernameTaken retry loop, but this constraint is the final backstop.
--- NOTE: CONCURRENTLY must be executed outside a transaction block.
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_students_username_unique
+-- Use a regular CREATE UNIQUE INDEX so this migration remains valid when the
+-- migration runner executes it inside a transaction block.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username_unique
     ON students (username)
     WHERE username IS NOT NULL AND username != '';
 

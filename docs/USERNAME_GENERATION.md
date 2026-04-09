@@ -48,7 +48,7 @@ This is safe under concurrent requests — Postgres row-level locking ensures no
 
 ## Migration
 
-The migration at `migrations/001_create_username_sequences.sql` creates the table and seeds it from existing student usernames. It extracts the alphabetic prefix and max numeric suffix from every row in the `students` table so that new usernames won't collide with existing ones.
+The migration at `migrations/001_create_username_sequences.sql` creates the table and seeds it from existing student usernames. It lowercases each existing username, removes any trailing numeric suffix to derive the base portion, and records the maximum numeric suffix for each resulting base so that new usernames won't collide with existing ones.
 
 ## Package Structure
 
