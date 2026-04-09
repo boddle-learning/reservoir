@@ -37,12 +37,12 @@ func NewService(store SequenceStore) *Service {
 func (s *Service) Generate(ctx context.Context, firstName, lastName string) (string, error) {
 	base := BuildBase(firstName, lastName)
 	if base == "" {
-		return "", fmt.Errorf("cannot generate username: first name is empty")
+		return "", fmt.Errorf("cannot generate username: names contain no letters")
 	}
 
-	// Truncate to leave room for at least a 1-digit number.
-	if len(base) > MaxUsernameLength-1 {
-		base = base[:MaxUsernameLength-1]
+	// Truncate to leave room for at least a 1-digit number (rune-safe).
+	if baseRunes := []rune(base); len(baseRunes) > MaxUsernameLength-1 {
+		base = string(baseRunes[:MaxUsernameLength-1])
 	}
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
@@ -70,15 +70,16 @@ func (s *Service) Generate(ctx context.Context, firstName, lastName string) (str
 }
 
 // formatUsername combines a base and number into a username that fits within
-// MaxUsernameLength. Returns "" if the number is too large to fit.
+// MaxUsernameLength. Truncation is rune-safe to handle multi-byte UTF-8
+// characters. Returns "" if the number is too large to fit.
 func formatUsername(base string, num int) string {
 	numStr := strconv.Itoa(num)
 	maxBaseLen := MaxUsernameLength - len(numStr)
 	if maxBaseLen < 1 {
 		return ""
 	}
-	if len(base) > maxBaseLen {
-		base = base[:maxBaseLen]
+	if baseRunes := []rune(base); len(baseRunes) > maxBaseLen {
+		base = string(baseRunes[:maxBaseLen])
 	}
 	return base + numStr
 }

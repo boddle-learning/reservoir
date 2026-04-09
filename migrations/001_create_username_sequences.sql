@@ -10,19 +10,22 @@ CREATE TABLE IF NOT EXISTS username_sequences (
 -- Add a UNIQUE constraint on students.username as a DB-level safety net against
 -- duplicate usernames. The application layer prevents duplicates via the atomic
 -- upsert + IsUsernameTaken retry loop, but this constraint is the final backstop.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_students_username_unique
+-- NOTE: CONCURRENTLY must be executed outside a transaction block.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_students_username_unique
     ON students (username)
     WHERE username IS NOT NULL AND username != '';
 
 -- Seed from existing student usernames.
--- Extracts the alphabetic prefix and finds the max numeric suffix per prefix.
+-- Extracts the alphabetic prefix, normalizes it to the same lowercase
+-- 14-character base username format used by the generator, and finds the
+-- max numeric suffix per normalized prefix.
 INSERT INTO username_sequences (base_username, max_number)
 SELECT
     prefix,
     MAX(num) AS max_number
 FROM (
     SELECT
-        regexp_replace(username, '[0-9]+$', '') AS prefix,
+        LEFT(LOWER(regexp_replace(username, '[0-9]+$', '')), 14) AS prefix,
         COALESCE(NULLIF(regexp_replace(username, '^[^0-9]*', ''), ''), '0')::integer AS num
     FROM students
     WHERE username IS NOT NULL AND username != ''

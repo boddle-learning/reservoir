@@ -22,8 +22,8 @@ Student usernames in Boddle follow the format `{firstName}{lastInitial}{number}`
 | Christian | Smith | `christians` | 1 | `christians1` |
 | Christian | Smith | `christians` | 2 | `christians2` |
 | Anna | Lee | `annal` | 1 | `annal1` |
-| ChristianJames | Smith | `christianjames` → truncated to `christianjame` (14) | 1 | `christianjame1` |
-| ChristianJames | Smith | `christianjame` | 10 | `christianjam10` |
+| ChristianJames | Smith | `christianjames` (capped to 14) | 1 | `christianjames1` |
+| ChristianJames | Smith | `christianjames` → truncated to 13 chars (`christianjame`) to fit 2-digit suffix `10` | 10 | `christianjame10` |
 
 ## Database Schema
 
