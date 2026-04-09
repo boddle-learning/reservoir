@@ -26,7 +26,7 @@ SELECT
 FROM (
     SELECT
         LEFT(LOWER(regexp_replace(username, '[0-9]+$', '')), 14) AS prefix,
-        COALESCE(NULLIF(regexp_replace(username, '^[^0-9]*', ''), ''), '0')::integer AS num
+        COALESCE(substring(username from '[0-9]+$'), '0')::integer AS num
     FROM students
     WHERE username IS NOT NULL AND username != ''
 ) sub
