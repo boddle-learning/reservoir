@@ -236,9 +236,10 @@ A high-performance authentication gateway in Go that:
 - `parents` - Parent metadata (icloud_uid)
 - `login_attempts` - Rate limiting data
 - `login_tokens` - Magic link tokens
+- `username_sequences` - Tracks max assigned number per username prefix (see [USERNAME_GENERATION.md](USERNAME_GENERATION.md))
 
-**New Columns Required:**
-- None! Uses existing Rails schema
+**New Tables:**
+- `username_sequences` - Added for Go-native username generation, replacing the legacy Redis range-based system
 
 ## API Endpoints Summary
 
@@ -435,6 +436,7 @@ RATE_LIMIT_LOCKOUT_DURATION=15m
 All documentation is in the `docs/` directory:
 
 - **`RAILS_MIGRATION_GUIDE.md`** - Complete Rails integration guide (50+ pages)
+- **`USERNAME_GENERATION.md`** - Username generation algorithm, schema, and usage
 - **`docs/rails/`** - Rails code files (middleware, helpers, initializers)
 - **`README.md`** - Main project README with quick start guide
 - **`.env.example`** - Environment variable template with examples
