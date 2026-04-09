@@ -53,14 +53,14 @@ func (m *mockStore) markTaken(username string) {
 
 // errorStore returns an error on the Nth call to NextNumber.
 type errorStore struct {
-	mockStore
+	*mockStore
 	failOnCall int
 	calls      int
 }
 
 func newErrorStore(failOn int) *errorStore {
 	return &errorStore{
-		mockStore:  *newMockStore(),
+		mockStore:  newMockStore(),
 		failOnCall: failOn,
 	}
 }
