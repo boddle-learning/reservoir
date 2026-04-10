@@ -143,6 +143,30 @@ func (h *Handler) Me(c *gin.Context) {
 	})
 }
 
+// Refresh exchanges a valid refresh token for a new token pair
+// POST /auth/refresh
+func (h *Handler) Refresh(c *gin.Context) {
+	var req RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, "refresh_token is required")
+		return
+	}
+
+	result, err := h.service.RefreshToken(c.Request.Context(), req.RefreshToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REFRESH_TOKEN",
+				"message": "Invalid or expired refresh token",
+			},
+		})
+		return
+	}
+
+	response.Success(c, http.StatusOK, result)
+}
+
 // Health returns health status
 // GET /health
 func (h *Handler) Health(c *gin.Context) {
