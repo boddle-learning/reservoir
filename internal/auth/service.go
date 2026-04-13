@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/boddle/reservoir/internal/token"
@@ -241,6 +242,75 @@ func (s *Service) Logout(ctx context.Context, tokenString string) error {
 	}
 
 	return nil
+}
+
+// RefreshRequest represents a token refresh request
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// RefreshToken validates a refresh token and issues a new token pair
+func (s *Service) RefreshToken(ctx context.Context, refreshTokenString string) (*LoginResponse, error) {
+	// Validate the refresh token
+	claims, err := s.tokenService.ValidateRefreshToken(refreshTokenString)
+	if err != nil {
+		return nil, fmt.Errorf("invalid refresh token: %w", err)
+	}
+
+	// Check if refresh token is blacklisted
+	blacklisted, err := s.tokenBlacklist.IsBlacklisted(ctx, claims.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check blacklist: %w", err)
+	}
+	if blacklisted {
+		return nil, fmt.Errorf("refresh token revoked")
+	}
+
+	// Parse user ID from the subject claim
+	userID, err := strconv.Atoi(claims.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("invalid subject in refresh token: %w", err)
+	}
+
+	// Load user with meta
+	userWithMeta, err := s.userRepo.FindWithMeta(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load user: %w", err)
+	}
+	if userWithMeta == nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	usr := &userWithMeta.User
+
+	// Blacklist the old refresh token so it can't be reused
+	if err := s.tokenBlacklist.Add(ctx, claims.ID, claims.ExpiresAt.Time); err != nil {
+		return nil, fmt.Errorf("failed to blacklist old refresh token: %w", err)
+	}
+
+	// Generate new token pair
+	boddleUID := ""
+	if usr.BoddleUID.Valid {
+		boddleUID = usr.BoddleUID.String
+	}
+
+	tokenPair, err := s.tokenService.Generate(
+		usr.ID,
+		boddleUID,
+		usr.Email,
+		userWithMeta.GetFullName(),
+		usr.MetaType,
+		usr.MetaID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return &LoginResponse{
+		Token: tokenPair,
+		User:  usr,
+		Meta:  userWithMeta.Meta,
+	}, nil
 }
 
 // GetCurrentUser gets the current user from token claims
