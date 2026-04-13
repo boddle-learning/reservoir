@@ -6,6 +6,9 @@ DOCKER_IMAGE=boddle/reservoir
 DOCKER_TAG=latest
 CONTAINER_REPO=210662219476.dkr.ecr.us-east-1.amazonaws.com
 CONTAINER_NAME=boddle-learning/reservoir
+define run-go
+docker run --rm -v $(CURDIR):/src -w /src golang:1.22-alpine sh -c "apk add --no-cache git && $(1)"
+endef
 cfpublish := docker run --rm -v $(CURDIR)/.cloudformation:/src -w /src -e AWS_REGION=${CLOUD_OPSREGION} theonestack/cfhighlander cfpublish
 
 help: ## Show this help message
@@ -24,8 +27,7 @@ run: ## Run the application locally
 	@go run cmd/server/main.go
 
 test: ## Run tests
-	@echo "Running tests..."
-	@go test ./... -v
+	$(call run-go,go test ./... -v)
 
 test-cover: ## Run tests with coverage
 	@echo "Running tests with coverage..."
@@ -77,9 +79,7 @@ lint: ## Run linter
 deploy: build-app build-container cf-publish ## Full build and publish pipeline
 
 build-app: ## Build the Go binary for Linux (production)
-	@echo "Building $(APP_NAME) for Linux..."
-	@CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) ./cmd/server
-	@echo "Build complete: ./$(APP_NAME)"
+	$(call run-go,CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) ./cmd/server)
 
 build-container: ## Build and push Docker image to ECR
 	docker build -t $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION) .
