@@ -115,6 +115,7 @@ func main() {
 	authGroup := router.Group("/auth")
 	{
 		authGroup.POST("/login", authHandler.Login)
+		authGroup.POST("/refresh", authHandler.Refresh)
 		authGroup.GET("/token", authHandler.LoginWithToken)
 		authGroup.POST("/logout", authHandler.Logout)
 

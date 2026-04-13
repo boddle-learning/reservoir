@@ -61,11 +61,8 @@ func (s *AuthService) AuthenticateWithGoogle(ctx context.Context, code, state st
 		boddleUID = usr.BoddleUID.String
 	}
 
-	fullName := ""
-	switch m := meta.(type) {
-	case *user.Teacher:
-		fullName = m.FirstName + " " + m.LastName
-	case *user.Student:
+	fullName := usr.Name
+	if m, ok := meta.(*user.Teacher); ok {
 		fullName = m.FirstName + " " + m.LastName
 	}
 
@@ -98,8 +95,7 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 	}
 
 	if teacher != nil {
-		// Found by Google UID
-		usr, err := s.userRepo.FindByID(ctx, teacher.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Teacher", teacher.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -113,8 +109,7 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 	}
 
 	if student != nil {
-		// Found by Google UID
-		usr, err := s.userRepo.FindByID(ctx, student.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Student", student.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -197,11 +192,8 @@ func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state st
 		boddleUID = usr.BoddleUID.String
 	}
 
-	fullName := ""
-	switch m := meta.(type) {
-	case *user.Teacher:
-		fullName = m.FirstName + " " + m.LastName
-	case *user.Student:
+	fullName := usr.Name
+	if m, ok := meta.(*user.Teacher); ok {
 		fullName = m.FirstName + " " + m.LastName
 	}
 
@@ -234,8 +226,7 @@ func (s *AuthService) findOrCreateCleverUser(ctx context.Context, info *OAuthUse
 	}
 
 	if teacher != nil {
-		// Found by Clever UID
-		usr, err := s.userRepo.FindByID(ctx, teacher.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Teacher", teacher.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -249,8 +240,7 @@ func (s *AuthService) findOrCreateCleverUser(ctx context.Context, info *OAuthUse
 	}
 
 	if student != nil {
-		// Found by Clever UID
-		usr, err := s.userRepo.FindByID(ctx, student.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Student", student.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -333,11 +323,8 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, code, state st
 		boddleUID = usr.BoddleUID.String
 	}
 
-	fullName := ""
-	switch m := meta.(type) {
-	case *user.Student:
-		fullName = m.FirstName + " " + m.LastName
-	case *user.Parent:
+	fullName := usr.Name
+	if m, ok := meta.(*user.Parent); ok {
 		fullName = m.FirstName + " " + m.LastName
 	}
 
@@ -371,8 +358,7 @@ func (s *AuthService) findOrCreateiCloudUser(ctx context.Context, info *OAuthUse
 	}
 
 	if student != nil {
-		// Found by iCloud UID
-		usr, err := s.userRepo.FindByID(ctx, student.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Student", student.ID)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -386,8 +372,7 @@ func (s *AuthService) findOrCreateiCloudUser(ctx context.Context, info *OAuthUse
 	}
 
 	if parent != nil {
-		// Found by iCloud UID
-		usr, err := s.userRepo.FindByID(ctx, parent.UserID)
+		usr, err := s.userRepo.FindUserByMeta(ctx, "Parent", parent.ID)
 		if err != nil {
 			return nil, nil, err
 		}

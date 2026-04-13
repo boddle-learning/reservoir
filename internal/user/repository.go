@@ -22,7 +22,7 @@ func NewRepository(db *sqlx.DB) *Repository {
 // FindByEmail finds a user by email address
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, error) {
 	var user User
-	query := `SELECT id, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
 			  FROM users
 			  WHERE email = $1`
 
@@ -40,7 +40,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, erro
 // FindByID finds a user by ID
 func (r *Repository) FindByID(ctx context.Context, id int) (*User, error) {
 	var user User
-	query := `SELECT id, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
 			  FROM users
 			  WHERE id = $1`
 
@@ -58,7 +58,7 @@ func (r *Repository) FindByID(ctx context.Context, id int) (*User, error) {
 // FindByBoddleUID finds a user by Boddle UID
 func (r *Repository) FindByBoddleUID(ctx context.Context, boddleUID string) (*User, error) {
 	var user User
-	query := `SELECT id, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
 			  FROM users
 			  WHERE boddle_uid = $1`
 
@@ -115,7 +115,7 @@ func (r *Repository) FindWithMeta(ctx context.Context, userID int) (*UserWithMet
 // FindTeacher finds a teacher by ID
 func (r *Repository) FindTeacher(ctx context.Context, id int) (*Teacher, error) {
 	var teacher Teacher
-	query := `SELECT id, user_id, first_name, last_name, google_uid, clever_uid, verified, created_at, updated_at
+	query := `SELECT id, first_name, last_name, google_uid, clever_uid, is_verified, created_at, updated_at
 			  FROM teachers
 			  WHERE id = $1`
 
@@ -133,7 +133,7 @@ func (r *Repository) FindTeacher(ctx context.Context, id int) (*Teacher, error) 
 // FindTeacherByGoogleUID finds a teacher by Google UID
 func (r *Repository) FindTeacherByGoogleUID(ctx context.Context, googleUID string) (*Teacher, error) {
 	var teacher Teacher
-	query := `SELECT id, user_id, first_name, last_name, google_uid, clever_uid, verified, created_at, updated_at
+	query := `SELECT id, first_name, last_name, google_uid, clever_uid, is_verified, created_at, updated_at
 			  FROM teachers
 			  WHERE google_uid = $1`
 
@@ -151,7 +151,7 @@ func (r *Repository) FindTeacherByGoogleUID(ctx context.Context, googleUID strin
 // FindTeacherByCleverUID finds a teacher by Clever UID
 func (r *Repository) FindTeacherByCleverUID(ctx context.Context, cleverUID string) (*Teacher, error) {
 	var teacher Teacher
-	query := `SELECT id, user_id, first_name, last_name, google_uid, clever_uid, verified, created_at, updated_at
+	query := `SELECT id, first_name, last_name, google_uid, clever_uid, is_verified, created_at, updated_at
 			  FROM teachers
 			  WHERE clever_uid = $1`
 
@@ -169,7 +169,7 @@ func (r *Repository) FindTeacherByCleverUID(ctx context.Context, cleverUID strin
 // FindStudent finds a student by ID
 func (r *Repository) FindStudent(ctx context.Context, id int) (*Student, error) {
 	var student Student
-	query := `SELECT id, user_id, username, first_name, last_name, google_uid, clever_uid, icloud_uid, created_at, updated_at
+	query := `SELECT id, game_character_name, google_uid, clever_uid, icloud_uid, parent_id, created_at, updated_at
 			  FROM students
 			  WHERE id = $1`
 
@@ -187,7 +187,7 @@ func (r *Repository) FindStudent(ctx context.Context, id int) (*Student, error) 
 // FindStudentByGoogleUID finds a student by Google UID
 func (r *Repository) FindStudentByGoogleUID(ctx context.Context, googleUID string) (*Student, error) {
 	var student Student
-	query := `SELECT id, user_id, username, first_name, last_name, google_uid, clever_uid, icloud_uid, created_at, updated_at
+	query := `SELECT id, game_character_name, google_uid, clever_uid, icloud_uid, parent_id, created_at, updated_at
 			  FROM students
 			  WHERE google_uid = $1`
 
@@ -205,7 +205,7 @@ func (r *Repository) FindStudentByGoogleUID(ctx context.Context, googleUID strin
 // FindParent finds a parent by ID
 func (r *Repository) FindParent(ctx context.Context, id int) (*Parent, error) {
 	var parent Parent
-	query := `SELECT id, user_id, first_name, last_name, icloud_uid, created_at, updated_at
+	query := `SELECT id, first_name, last_name, icloud_uid, created_at, updated_at
 			  FROM parents
 			  WHERE id = $1`
 
@@ -218,6 +218,25 @@ func (r *Repository) FindParent(ctx context.Context, id int) (*Parent, error) {
 	}
 
 	return &parent, nil
+}
+
+// FindUserByMeta finds a user by their polymorphic meta association (meta_type + meta_id).
+// This is the reverse lookup since meta tables don't have a user_id column.
+func (r *Repository) FindUserByMeta(ctx context.Context, metaType string, metaID int) (*User, error) {
+	var user User
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+			  FROM users
+			  WHERE meta_type = $1 AND meta_id = $2`
+
+	err := r.db.GetContext(ctx, &user, query, metaType, metaID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to find user by meta: %w", err)
+	}
+
+	return &user, nil
 }
 
 // UpdateLastLoggedOn updates the last_logged_on timestamp
@@ -329,7 +348,7 @@ func (r *Repository) UpdateStudentCleverUID(ctx context.Context, studentID int, 
 // FindStudentByiCloudUID finds a student by iCloud UID
 func (r *Repository) FindStudentByiCloudUID(ctx context.Context, icloudUID string) (*Student, error) {
 	var student Student
-	query := `SELECT id, user_id, username, first_name, last_name, google_uid, clever_uid, icloud_uid, created_at, updated_at
+	query := `SELECT id, game_character_name, google_uid, clever_uid, icloud_uid, parent_id, created_at, updated_at
 			  FROM students
 			  WHERE icloud_uid = $1`
 
@@ -347,7 +366,7 @@ func (r *Repository) FindStudentByiCloudUID(ctx context.Context, icloudUID strin
 // FindParentByiCloudUID finds a parent by iCloud UID
 func (r *Repository) FindParentByiCloudUID(ctx context.Context, icloudUID string) (*Parent, error) {
 	var parent Parent
-	query := `SELECT id, user_id, first_name, last_name, icloud_uid, created_at, updated_at
+	query := `SELECT id, first_name, last_name, icloud_uid, created_at, updated_at
 			  FROM parents
 			  WHERE icloud_uid = $1`
 
@@ -365,7 +384,7 @@ func (r *Repository) FindParentByiCloudUID(ctx context.Context, icloudUID string
 // FindStudentByCleverUID finds a student by Clever UID
 func (r *Repository) FindStudentByCleverUID(ctx context.Context, cleverUID string) (*Student, error) {
 	var student Student
-	query := `SELECT id, user_id, username, first_name, last_name, google_uid, clever_uid, icloud_uid, created_at, updated_at
+	query := `SELECT id, game_character_name, google_uid, clever_uid, icloud_uid, parent_id, created_at, updated_at
 			  FROM students
 			  WHERE clever_uid = $1`
 
