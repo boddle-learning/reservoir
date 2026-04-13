@@ -1,9 +1,12 @@
-.PHONY: help build run test clean docker-build docker-up docker-down
+.PHONY: help build run test clean docker-build docker-up docker-down build-app build-container cf-publish deploy
 
 # Variables
 APP_NAME=reservoir
 DOCKER_IMAGE=boddle/reservoir
 DOCKER_TAG=latest
+CONTAINER_REPO=210662219476.dkr.ecr.us-east-1.amazonaws.com
+CONTAINER_NAME=boddle-learning/reservoir
+cfpublish := docker run --rm -v $(CURDIR)/.cloudformation:/src -w /src -e AWS_REGION=${CLOUD_OPSREGION} theonestack/cfhighlander cfpublish
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -70,3 +73,18 @@ lint: ## Run linter
 	@echo "Running linter..."
 	@golangci-lint run
 	@echo "Linting complete"
+
+deploy: build-app build-container cf-publish ## Full build and publish pipeline
+
+build-app: ## Build the Go binary for Linux (production)
+	@echo "Building $(APP_NAME) for Linux..."
+	@CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) ./cmd/server
+	@echo "Build complete: ./$(APP_NAME)"
+
+build-container: ## Build and push Docker image to ECR
+	docker build -t $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION) .
+	docker push $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION)
+
+cf-publish: ## Publish CloudFormation template
+	@echo "Publishing CloudFormation template..."
+	$(cfpublish) ${GITOPS_PIPELINE_NAME} -q --version ${VERSION} --dstbucket ${CLOUD_CFTEMPLATES_BUCKET} --dstprefix ${CLOUD_CFTEMPLATES_PREFIX}/${GITOPS_PIPELINE_NAME}
