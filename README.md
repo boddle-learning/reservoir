@@ -159,7 +159,8 @@ postgres_connections                               # Database connection pool
 
 ### Prerequisites
 
-- **Docker**: 20.10+ and Docker Compose 2.0+ (Go runs inside a container — no local Go install needed)
+- **Docker**: 20.10+ and Docker Compose 2.0+ (used for the recommended containerized workflow)
+- **Go**: 1.22+ (required only if you use host-based commands such as `make run`; Docker-based workflows do not require a local Go install)
 - **PostgreSQL**: 15+ (or compatible database)
 - **Redis**: 7+ (for rate limiting and caching)
 
@@ -748,8 +749,9 @@ make test
 ### Code Style
 
 - Follow [Effective Go](https://golang.org/doc/effective_go.html) guidelines
-- Use `gofmt` for formatting: `make fmt`
-- Run linters: `make lint`
+- `make fmt` requires Go to be installed locally and uses `gofmt` for formatting
+- `make lint` requires Go and `golangci-lint` to be installed locally
+- The Docker-based "no local Go required" workflow above applies to `make build` and `make test`
 
 ---
 
