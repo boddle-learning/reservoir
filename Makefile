@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docker-build docker-up docker-down build-app build-container cf-publish deploy
+.PHONY: help build run test test-cover clean docker-build docker-up docker-down docker-logs docker-rebuild deps fmt lint build-app build-container cf-publish deploy
 
 # Variables
 APP_NAME=reservoir
@@ -76,13 +76,17 @@ lint: ## Run linter
 
 deploy: build-app build-container cf-publish ## Full build and publish pipeline
 
+# Fail-fast guard for required variables: usage guard-VARNAME
+guard-%:
+	@if [ -z '${${*}}' ]; then echo "ERROR: variable $* is required" >&2; exit 1; fi
+
 build-app: ## Build the Go binary for Linux (production)
 	$(call run-go,CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) ./cmd/server)
 
-build-container: ## Build and push Docker image to ECR
+build-container: guard-VERSION ## Build and push Docker image to ECR
 	docker build -t $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION) .
 	docker push $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION)
 
-cf-publish: ## Publish CloudFormation template
+cf-publish: guard-VERSION guard-GITOPS_PIPELINE_NAME guard-CLOUD_CFTEMPLATES_BUCKET guard-CLOUD_CFTEMPLATES_PREFIX ## Publish CloudFormation template
 	@echo "Publishing CloudFormation template..."
 	$(cfpublish) ${GITOPS_PIPELINE_NAME} -q --version ${VERSION} --dstbucket ${CLOUD_CFTEMPLATES_BUCKET} --dstprefix ${CLOUD_CFTEMPLATES_PREFIX}/${GITOPS_PIPELINE_NAME}
