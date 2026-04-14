@@ -153,7 +153,8 @@ func (h *Handler) ICloudAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "Missing uid parameter",
+				"message": "Invalid request body",
+				"details": err.Error(),
 			},
 		})
 		return
