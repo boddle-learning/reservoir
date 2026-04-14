@@ -748,8 +748,9 @@ make test
 ### Code Style
 
 - Follow [Effective Go](https://golang.org/doc/effective_go.html) guidelines
-- Use `gofmt` for formatting: `make fmt`
-- Run linters: `make lint`
+- `make fmt` requires Go to be installed locally and uses `gofmt` for formatting
+- `make lint` requires Go and `golangci-lint` to be installed locally
+- The Docker-based "no local Go required" workflow above applies to `make build` and `make test`
 
 ---
 
