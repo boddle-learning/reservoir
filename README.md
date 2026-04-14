@@ -159,8 +159,8 @@ postgres_connections                               # Database connection pool
 
 ### Prerequisites
 
-- **Go**: 1.22 or higher
-- **Docker**: 20.10+ and Docker Compose 2.0+
+- **Docker**: 20.10+ and Docker Compose 2.0+ (used for the recommended containerized workflow)
+- **Go**: 1.22+ (required only if you use host-based commands such as `make run`; Docker-based workflows do not require a local Go install)
 - **PostgreSQL**: 15+ (or compatible database)
 - **Redis**: 7+ (for rate limiting and caching)
 
@@ -191,21 +191,17 @@ This will start:
 - Adminer (database UI) on `http://localhost:8081`
 - Redis Commander on `http://localhost:8082`
 
-#### Using Go Directly
+#### Using Make (Recommended for Development)
 
 ```bash
-# Install dependencies
-go mod download
+# Build the Go binary (runs inside Docker)
+make build-local
 
-# Run database migrations (if needed)
-# psql -h localhost -U postgres -d lmsprod -f migrations/schema.sql
+# Run tests (runs inside Docker)
+make test
 
-# Start the server
-go run cmd/server/main.go
-
-# Or build and run
-go build -o reservoir cmd/server/main.go
-./reservoir
+# Start the server locally
+make run
 ```
 
 The gateway will start on `http://localhost:8080` by default.
@@ -312,7 +308,7 @@ GET /health                    # Health check (200 OK if healthy)
 GET /metrics                   # Prometheus metrics
 ```
 
-For complete API documentation, see [docs/API.md](docs/API.md).
+For authentication flow details, see [docs/current-system/authentication.md](docs/current-system/authentication.md).
 
 ---
 
@@ -449,30 +445,11 @@ RATE_LIMIT_LOCKOUT_DURATION=15m
 ### Unit Tests
 
 ```bash
-# Run all tests
-go test ./... -v
+# Run all tests (inside Docker — no local Go required)
+make test
 
 # Run with coverage
-go test ./... -cover -coverprofile=coverage.out
-
-# View coverage report
-go tool cover -html=coverage.out
-
-# Run specific package tests
-go test ./internal/auth/... -v
-```
-
-### Integration Tests
-
-```bash
-# Start test dependencies
-docker-compose -f docker-compose.test.yml up -d
-
-# Run integration tests
-go test ./tests/integration/... -v -tags=integration
-
-# Cleanup
-docker-compose -f docker-compose.test.yml down
+make test-cover
 ```
 
 ### Load Testing
@@ -482,29 +459,34 @@ We use [k6](https://k6.io/) for load testing:
 ```bash
 # Install k6
 brew install k6  # macOS
-# or visit https://k6.io/docs/getting-started/installation/
 
 # Run load test
 k6 run tests/load-test.js
-
-# Custom parameters
-k6 run --vus 100 --duration 5m tests/load-test.js
-
-# Stress test
-k6 run --vus 1000 --duration 10m tests/load-test.js
 ```
-
-**Performance Targets:**
-- Throughput: 1000+ req/s
-- Latency p95: < 500ms
-- Latency p99: < 1s
-- Error rate: < 0.1%
 
 ---
 
 ## Deployment
 
-### Docker
+### CI/CD Pipeline
+
+Reservoir uses **ciinabox-gitops-jenkins** for CI/CD. The pipeline is defined in `Jenkinsfile` and driven by `Makefile` targets:
+
+```bash
+# Full build and publish pipeline (used by CI)
+make deploy VERSION=<git-version> GITOPS_PIPELINE_NAME=reservoir ...
+
+# Individual steps:
+make build-app           # Build Linux binary (in Docker)
+make build-container     # Build and push Docker image to ECR
+make cf-publish          # Publish CloudFormation template
+```
+
+The container image is pushed to ECR at `210662219476.dkr.ecr.us-east-1.amazonaws.com/boddle-learning/reservoir`. CloudFormation templates live in `.cloudformation/`.
+
+For detailed deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Docker (Local)
 
 ```bash
 # Build image
@@ -517,58 +499,6 @@ docker run -d \
   --env-file .env \
   boddle/reservoir:latest
 ```
-
-### Kubernetes
-
-```yaml
-# Example deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: reservoir
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: reservoir
-  template:
-    metadata:
-      labels:
-        app: reservoir
-    spec:
-      containers:
-      - name: reservoir
-        image: boddle/reservoir:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: JWT_SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: reservoir-secrets
-              key: jwt-secret-key
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        resources:
-          requests:
-            memory: "256Mi"
-            cpu: "500m"
-          limits:
-            memory: "512Mi"
-            cpu: "1000m"
-```
-
-For complete deployment guides, see [docs/deployment/](docs/deployment/).
 
 ---
 
@@ -612,27 +542,28 @@ For complete integration instructions, see:
 
 ## Documentation
 
-Comprehensive documentation is available in the `docs/` directory:
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
-### Getting Started
-- **[Quick Reference](docs/current-system/jwt-quick-reference.md)** - Quick syntax reference for developers
+### Current System
+- **[Authentication Overview](docs/current-system/authentication.md)** - System architecture and auth flows
+- **[Database Schema](docs/current-system/database-schema.md)** - Database structure and relationships
+- **[JWT Quick Reference](docs/current-system/jwt-quick-reference.md)** - Quick syntax reference for developers
 - **[Rails Integration](docs/current-system/rails-integration.md)** - Complete Rails integration guide
-- **[Migration Guide](docs/RAILS_MIGRATION_GUIDE.md)** - Step-by-step migration strategy
 
 ### Architecture & Design
-- **[Authentication Overview](docs/current-system/authentication.md)** - System architecture and flows
-- **[Database Schema](docs/current-system/database-schema.md)** - Database structure and relationships
-- **[System Diagrams](docs/diagrams/)** - Architecture diagrams and flow charts
+- **[New System Architecture](docs/new-system/architecture.md)** - Target architecture design
+- **[System Diagrams](docs/diagrams/)** - Architecture, deployment, database, and monitoring diagrams ([guide](docs/diagrams/DIAGRAMS-GUIDE.md))
 
-### Operations
-- **[Deployment Guide](docs/deployment/)** - Production deployment instructions
-- **[Monitoring & Alerting](docs/monitoring/)** - Observability setup guide
-- **[Troubleshooting](docs/troubleshooting/)** - Common issues and solutions
+### Migration & Deployment
+- **[Rails Migration Guide](docs/RAILS_MIGRATION_GUIDE.md)** - Step-by-step migration strategy
+- **[Rails Changes](docs/migration/rails-changes.md)** - Required Rails-side changes
+- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment instructions
+
+### Features
+- **[Username Generation](docs/USERNAME_GENERATION.md)** - Username generation system
 
 ### Project Information
 - **[Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md)** - Complete project overview
-- **[Changelog](CHANGELOG.md)** - Version history and changes
-- **[Contributing](CONTRIBUTING.md)** - Development guidelines
 
 ---
 
@@ -646,74 +577,32 @@ reservoir/
 │
 ├── internal/
 │   ├── auth/                    # Authentication logic
-│   │   ├── handler.go           # HTTP request handlers
-│   │   ├── service.go           # Business logic
-│   │   ├── password.go          # Password operations
-│   │   └── validator.go         # Input validation
-│   │
-│   ├── oauth/                   # OAuth providers
-│   │   ├── google.go            # Google OAuth2
-│   │   ├── clever.go            # Clever SSO
-│   │   ├── icloud.go            # Apple Sign In
-│   │   ├── service.go           # OAuth business logic
-│   │   ├── handler.go           # OAuth handlers
-│   │   └── state.go             # OAuth state management
-│   │
+│   ├── oauth/                   # OAuth providers (Google, Clever, iCloud)
 │   ├── token/                   # JWT management
-│   │   ├── jwt.go               # JWT generation/validation
-│   │   ├── claims.go            # JWT claims structure
-│   │   └── blacklist.go         # Token revocation
-│   │
 │   ├── user/                    # User management
-│   │   ├── model.go             # User data models
-│   │   └── repository.go        # Database operations
-│   │
+│   ├── username/                # Username generation
 │   ├── ratelimit/               # Rate limiting
-│   │   └── limiter.go           # Redis-backed limiter
-│   │
 │   ├── middleware/              # HTTP middleware
-│   │   ├── auth.go              # JWT validation
-│   │   ├── cors.go              # CORS headers
-│   │   ├── logger.go            # Request logging
-│   │   ├── metrics.go           # Prometheus metrics
-│   │   ├── recovery.go          # Panic recovery
-│   │   └── security.go          # Security headers
-│   │
 │   ├── database/                # Database clients
-│   │   ├── postgres.go          # PostgreSQL connection
-│   │   └── redis.go             # Redis connection
-│   │
 │   └── config/                  # Configuration
-│       └── config.go            # Config management
 │
 ├── pkg/                         # Public packages
 │   ├── errors/                  # Custom error types
-│   │   └── errors.go
 │   └── response/                # HTTP response helpers
-│       └── response.go
 │
-├── tests/                       # Tests
-│   ├── integration/             # Integration tests
-│   ├── mocks/                   # Test mocks
+├── tests/
 │   └── load-test.js             # k6 load testing
 │
-├── docs/                        # Documentation
-│   ├── current-system/          # System documentation
-│   ├── diagrams/                # Architecture diagrams
-│   ├── rails/                   # Rails integration code
-│   ├── RAILS_MIGRATION_GUIDE.md
-│   └── IMPLEMENTATION_SUMMARY.md
-│
+├── docs/                        # Documentation (see below)
+├── .cloudformation/             # CloudFormation templates (ciinabox)
 ├── scripts/                     # Utility scripts
-│   └── generate-diagrams.sh    # Diagram generation
 │
 ├── .env.example                 # Environment template
-├── .gitignore                   # Git ignore rules
 ├── Dockerfile                   # Docker image
 ├── docker-compose.yml           # Local development
-├── go.mod                       # Go dependencies
-├── go.sum                       # Go checksums
-├── Makefile                     # Build automation
+├── Jenkinsfile                  # CI/CD pipeline definition
+├── Makefile                     # Build automation (Docker-based)
+├── go.mod / go.sum              # Go dependencies
 └── README.md                    # This file
 ```
 
@@ -813,26 +702,6 @@ auth_active_tokens 342
 http_requests_total{method="POST",path="/auth/login",status="200"} 1523
 ```
 
-### Grafana Dashboards
-
-Sample Grafana dashboards are available in `docs/monitoring/grafana/`:
-- Authentication metrics dashboard
-- HTTP request metrics dashboard
-- Redis and PostgreSQL performance dashboard
-
-### Alerting Rules
-
-Sample Prometheus alerting rules in `docs/monitoring/alerts/`:
-```yaml
-- alert: High Auth Failure Rate
-  expr: rate(auth_login_attempts_total{status="failure"}[5m]) > 10
-  for: 5m
-  labels:
-    severity: warning
-  annotations:
-    summary: High authentication failure rate detected
-```
-
 ---
 
 ## Troubleshooting
@@ -859,13 +728,11 @@ Sample Prometheus alerting rules in `docs/monitoring/alerts/`:
 **Cause**: PostgreSQL not running or incorrect credentials
 **Solution**: Verify database configuration and connectivity
 
-For more troubleshooting guides, see [docs/troubleshooting/](docs/troubleshooting/).
+For deployment-related issues, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
 ## Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ### Development Setup
 
@@ -874,24 +741,17 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 git clone https://github.com/boddle-learning/reservoir.git
 cd reservoir
 
-# Install dependencies
-go mod download
-
-# Run tests
-go test ./... -v
-
-# Run with hot reload (using air)
-go install github.com/cosmtrek/air@latest
-air
+# Build and test (Docker-based — no local Go required)
+make build
+make test
 ```
 
 ### Code Style
 
 - Follow [Effective Go](https://golang.org/doc/effective_go.html) guidelines
-- Use `gofmt` for formatting: `go fmt ./...`
-- Run linters: `golangci-lint run`
-- Write tests for new features (minimum 80% coverage)
-- Update documentation for API changes
+- `make fmt` requires Go to be installed locally and uses `gofmt` for formatting
+- `make lint` requires Go and `golangci-lint` to be installed locally
+- The Docker-based "no local Go required" workflow above applies to `make build` and `make test`
 
 ---
 
@@ -918,10 +778,6 @@ For enterprise support, SLA agreements, and custom development:
 - **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/boddle-learning/reservoir/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/boddle-learning/reservoir/discussions)
-
-### Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.
 
 ---
 

@@ -11,7 +11,7 @@ CfhighlanderTemplate do
       ComponentParam 'Memory', '1024'
     end
 
-    Component name: 'reservoir', template: 'ecs-service@2.18.0', render:Inline do
+    Component name: 'app', template: 'ecs-service@2.18.0', render:Inline do
       parameter name: 'VPCId', value: FnImportValue(FnSub("${EnvironmentName}-vpc-VPCId"))
       parameter name: 'SubnetIds', value: FnImportValue(FnSub("${EnvironmentName}-vpc-ComputeSubnets"))
       parameter name: 'EcsCluster', value: FnImportValue(FnSub("${EnvironmentName}-ecs-EcsCluster"))
@@ -22,7 +22,7 @@ CfhighlanderTemplate do
       parameter name: 'Cpu', value: Ref('Cpu')
       parameter name: 'Memory', value: Ref('Memory')
       parameter name: 'EnableScaling', value: Ref('EnableScaling')
-      parameter name: 'reservoirVersion', value: component_version
+      parameter name: 'appVersion', value: component_version
     end
 
   end
