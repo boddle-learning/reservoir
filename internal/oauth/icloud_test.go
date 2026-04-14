@@ -4,16 +4,9 @@ import (
 	"testing"
 
 	"github.com/boddle/reservoir/internal/config"
-	"github.com/redis/go-redis/v9"
 )
 
 func TestNewiCloudService(t *testing.T) {
-	// Create a mock state manager for testing
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-	stateManager := NewStateManager(redisClient)
-
 	cfg := config.ICloudConfig{
 		ServiceID:      "com.boddle.auth",
 		TeamID:         "TEST_TEAM_ID",
@@ -24,7 +17,7 @@ func TestNewiCloudService(t *testing.T) {
 
 	// Note: This test will fail without a valid private key file
 	// In a real test environment, you would mock the private key loading
-	_, err := NewiCloudService(cfg, stateManager)
+	_, err := NewiCloudService(cfg, nil)
 	if err == nil {
 		t.Error("Expected error when private key file doesn't exist")
 	}
