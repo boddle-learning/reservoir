@@ -1,21 +1,13 @@
 package oauth
 
 import (
-	"context"
 	"testing"
 
 	"github.com/boddle/reservoir/internal/config"
-	"github.com/redis/go-redis/v9"
 )
 
-func TestNewi CloudService(t *testing.T) {
-	// Create a mock state manager for testing
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
-	})
-	stateManager := NewStateManager(redisClient)
-
-	cfg := config.iCloudConfig{
+func TestNewiCloudService(t *testing.T) {
+	cfg := config.ICloudConfig{
 		ServiceID:      "com.boddle.auth",
 		TeamID:         "TEST_TEAM_ID",
 		KeyID:          "TEST_KEY_ID",
@@ -25,25 +17,25 @@ func TestNewi CloudService(t *testing.T) {
 
 	// Note: This test will fail without a valid private key file
 	// In a real test environment, you would mock the private key loading
-	_, err := NewiCloudService(cfg, stateManager)
+	_, err := NewiCloudService(cfg, nil)
 	if err == nil {
 		t.Error("Expected error when private key file doesn't exist")
 	}
 }
 
-func TestiCloudAuthURL(t *testing.T) {
+func TestICloudAuthURL(t *testing.T) {
 	// This test requires a valid iCloud service configuration
 	// In production tests, you would use a test fixture with a valid key
 	t.Skip("Skipping test that requires valid Apple private key")
 }
 
-func TestiCloudGenerateClientSecret(t *testing.T) {
+func TestICloudGenerateClientSecret(t *testing.T) {
 	// Test client secret generation
 	// This would require loading a test private key
 	t.Skip("Skipping test that requires valid Apple private key")
 }
 
-func TestiCloudParseIDToken(t *testing.T) {
+func TestICloudParseIDToken(t *testing.T) {
 	// Test ID token parsing
 	// Would need a sample ID token from Apple
 	t.Skip("Skipping test that requires sample Apple ID token")
