@@ -79,18 +79,11 @@ func main() {
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
 	cleverService := oauth.NewCleverService(cfg.Clever, oauthStateManager)
 
-	// iCloud service is optional (requires private key file)
-	icloudService, err := oauth.NewiCloudService(cfg.ICloud, oauthStateManager)
-	if err != nil {
-		logger.Warn("iCloud service not initialized (private key not found)", zap.Error(err))
-		icloudService = nil
-	}
-
-	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, icloudService)
+	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService)
 
 	// Initialize handlers
 	authHandler := auth.NewHandler(authService)
-	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService, icloudService)
+	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService)
 
 	// Set up Gin router
 	if cfg.IsProduction() {
@@ -125,12 +118,8 @@ func main() {
 		authGroup.GET("/clever", oauthHandler.CleverLogin)
 		authGroup.GET("/clever/callback", oauthHandler.CleverCallback)
 
-		// iCloud routes (only if service is initialized)
-		if icloudService != nil {
-			authGroup.GET("/icloud", oauthHandler.ICloudLogin)
-			authGroup.POST("/icloud/callback", oauthHandler.ICloudCallback)
-			authGroup.GET("/icloud/callback", oauthHandler.ICloudCallback) // Support GET for testing
-		}
+		// iCloud route — client sends Apple UID directly, no server-side OAuth flow
+		authGroup.POST("/icloud", oauthHandler.ICloudAuth)
 
 		// Protected routes (require authentication)
 		authGroup.Use(middleware.Auth(authService))

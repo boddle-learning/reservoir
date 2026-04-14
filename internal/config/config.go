@@ -25,7 +25,6 @@ type Config struct {
 	// OAuth configuration
 	Google GoogleConfig
 	Clever CleverConfig
-	ICloud ICloudConfig
 
 	// CORS configuration
 	CORS CORSConfig
@@ -72,15 +71,6 @@ type CleverConfig struct {
 	ClientID     string `envconfig:"CLEVER_CLIENT_ID" required:"true"`
 	ClientSecret string `envconfig:"CLEVER_CLIENT_SECRET" required:"true"`
 	RedirectURL  string `envconfig:"CLEVER_REDIRECT_URL" required:"true"`
-}
-
-// ICloudConfig holds iCloud Sign In configuration
-type ICloudConfig struct {
-	ServiceID      string `envconfig:"ICLOUD_SERVICE_ID" required:"true"`
-	TeamID         string `envconfig:"ICLOUD_TEAM_ID" required:"true"`
-	KeyID          string `envconfig:"ICLOUD_KEY_ID" required:"true"`
-	PrivateKeyPath string `envconfig:"ICLOUD_PRIVATE_KEY_PATH" required:"true"`
-	RedirectURL    string `envconfig:"ICLOUD_REDIRECT_URL" required:"true"`
 }
 
 // CORSConfig holds CORS configuration

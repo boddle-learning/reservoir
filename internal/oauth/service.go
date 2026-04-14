@@ -16,7 +16,6 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
-	icloudSvc    *iCloudService
 }
 
 // NewAuthService creates a new OAuth authentication service
@@ -25,14 +24,12 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
-	icloudSvc *iCloudService,
 ) *AuthService {
 	return &AuthService{
 		userRepo:     userRepo,
 		tokenService: tokenService,
 		googleSvc:    googleSvc,
 		cleverSvc:    cleverSvc,
-		icloudSvc:    icloudSvc,
 	}
 }
 
@@ -298,18 +295,14 @@ func (s *AuthService) findOrCreateCleverUser(ctx context.Context, info *OAuthUse
 	}
 }
 
-// AuthenticateWithiCloud authenticates a user with iCloud Sign In
-func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, code, state string) (*auth.LoginResponse, string, error) {
-	// Handle iCloud OAuth callback
-	oauthUserInfo, redirectURL, err := s.icloudSvc.HandleCallback(ctx, code, state)
+// AuthenticateWithiCloud authenticates a user with an Apple UID provided by the client.
+// The client handles Sign in with Apple directly and passes the UID to the server.
+// No server-side token verification is performed (matches LMS behavior).
+func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*auth.LoginResponse, error) {
+	// Find user by iCloud UID
+	usr, meta, err := s.findOrCreateiCloudUser(ctx, &OAuthUserInfo{ProviderUserID: uid})
 	if err != nil {
-		return nil, "", err
-	}
-
-	// Find or create user
-	usr, meta, err := s.findOrCreateiCloudUser(ctx, oauthUserInfo)
-	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	// Update last logged on
@@ -337,20 +330,21 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, code, state st
 		usr.MetaID,
 	)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate token: %w", err)
+		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 
 	return &auth.LoginResponse{
 		Token: tokenPair,
 		User:  usr,
 		Meta:  meta,
-	}, redirectURL, nil
+	}, nil
 }
 
-// findOrCreateiCloudUser finds an existing user by iCloud UID or email, or returns error
-// Note: User creation is handled by Rails, so we only link existing accounts
+// findOrCreateiCloudUser finds an existing user by iCloud UID
+// Note: User creation is handled by Rails, so we only look up existing accounts.
+// The client handles Sign in with Apple and passes the UID — no email-based
+// linking since we don't receive email from the client in this flow.
 func (s *AuthService) findOrCreateiCloudUser(ctx context.Context, info *OAuthUserInfo) (*user.User, interface{}, error) {
-	// iCloud Sign In is primarily for students and parents
 	// Try to find student by iCloud UID
 	student, err := s.userRepo.FindStudentByiCloudUID(ctx, info.ProviderUserID)
 	if err != nil {
@@ -379,53 +373,5 @@ func (s *AuthService) findOrCreateiCloudUser(ctx context.Context, info *OAuthUse
 		return usr, parent, nil
 	}
 
-	// Try to find by email (account linking)
-	usr, err := s.userRepo.FindByEmail(ctx, info.Email)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if usr == nil {
-		return nil, nil, fmt.Errorf("no account found for this iCloud account. Please sign up first.")
-	}
-
-	// Link account by updating iCloud UID
-	switch usr.MetaType {
-	case "Student":
-		student, err := s.userRepo.FindStudent(ctx, usr.MetaID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if student == nil {
-			return nil, nil, fmt.Errorf("student meta not found")
-		}
-
-		// Update iCloud UID
-		if err := s.userRepo.UpdateStudentiCloudUID(ctx, student.ID, info.ProviderUserID); err != nil {
-			return nil, nil, fmt.Errorf("failed to link iCloud account: %w", err)
-		}
-
-		student.ICloudUID = sql.NullString{String: info.ProviderUserID, Valid: true}
-		return usr, student, nil
-
-	case "Parent":
-		parent, err := s.userRepo.FindParent(ctx, usr.MetaID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if parent == nil {
-			return nil, nil, fmt.Errorf("parent meta not found")
-		}
-
-		// Update iCloud UID
-		if err := s.userRepo.UpdateParentiCloudUID(ctx, parent.ID, info.ProviderUserID); err != nil {
-			return nil, nil, fmt.Errorf("failed to link iCloud account: %w", err)
-		}
-
-		parent.ICloudUID = sql.NullString{String: info.ProviderUserID, Valid: true}
-		return usr, parent, nil
-
-	default:
-		return nil, nil, fmt.Errorf("unsupported user type for iCloud Sign In: %s (iCloud is for students and parents only)", usr.MetaType)
-	}
+	return nil, nil, fmt.Errorf("no account found for this iCloud UID. Please sign up first.")
 }
