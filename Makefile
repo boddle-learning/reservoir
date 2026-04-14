@@ -82,7 +82,7 @@ guard-%:
 	@if [ -z '${${*}}' ]; then echo "ERROR: variable $* is required" >&2; exit 1; fi
 
 build-app: ## Build the Go binary for Linux (production)
-	$(call run-go,CGO_ENABLED=0 GOOS=linux go build -o $(APP_NAME) ./cmd/server)
+	$(call run-go,CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o $(APP_NAME) ./cmd/server)
 
 build-container: guard-VERSION ## Build and push Docker image to ECR
 	docker build -t $(CONTAINER_REPO)/$(CONTAINER_NAME):$(VERSION) .
