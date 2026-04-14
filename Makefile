@@ -1,4 +1,4 @@
-.PHONY: help build run test test-cover clean docker-build docker-up docker-down docker-logs docker-rebuild deps fmt lint build-app build-container cf-publish deploy
+.PHONY: help build run test test-cover clean docker-build docker-up docker-down docker-logs docker-rebuild deps fmt lint build-app build-container cf-publish build-local
 
 # Variables
 APP_NAME=reservoir
@@ -17,7 +17,9 @@ help: ## Show this help message
 	@echo 'Available targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## Build the Go binary
+build: build-app build-container cf-publish ## Full CI build and publish pipeline
+
+build-local: ## Build the Go binary locally (in Docker)
 	$(call run-go,go build -o $(APP_NAME) cmd/server/main.go)
 
 run: ## Run the application locally
@@ -74,7 +76,6 @@ lint: ## Run linter
 	@golangci-lint run
 	@echo "Linting complete"
 
-deploy: build-app build-container cf-publish ## Full build and publish pipeline
 
 # Fail-fast guard for required variables: usage guard-VARNAME
 guard-%:

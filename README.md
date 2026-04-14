@@ -194,7 +194,7 @@ This will start:
 
 ```bash
 # Build the Go binary (runs inside Docker)
-make build
+make build-local
 
 # Run tests (runs inside Docker)
 make test
