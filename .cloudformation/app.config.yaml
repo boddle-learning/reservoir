@@ -52,8 +52,7 @@ ingress_rules:
       Ref: InternalLoadBalancerSecurityGroup
     desc: allows traffic from internal ALB
 
-# Array form: each entry's `listener` becomes a stack parameter `{listener}Listener`
-# (see hl-component-fargate-v2 fargate-v2.cfhighlander.rb). Rules attach to that listener ARN.
+
 targetgroup:
   - name: public
     type: ip
@@ -82,8 +81,7 @@ targetgroup:
     attributes:
       deregistration_delay.timeout_seconds: 10
     rules:
-      # host without a dot is suffixed with DnsDomain (see fargate-v2.cfndsl.rb)
-      - host: reservoir-internal
+      - host: reservoir-internal.*
         priority: 61
 
 scaling_policy:
