@@ -6,12 +6,10 @@ enable_execute_command: true
 
 service_namespace: ecs #enables application scaling configuration
 
-cpu:
+cpu: 
   Ref: Cpu
 memory:
   Ref: Memory
-
-availability_zone_rebalancing: DISABLED
 
 iam_policies:
   ec2-regions:
@@ -21,6 +19,12 @@ iam_policies:
     action:
       - ssm:GetParameter
       - ssm:GetParametersByPath
+  s3-content:
+    action:
+      - '*'
+    resource:
+      - Fn::Sub: arn:aws:s3:::${EnvironmentName}-${AWS::Region}-content-boddlelearning-com
+      - Fn::Sub: arn:aws:s3:::${EnvironmentName}-${AWS::Region}-content-boddlelearning-com/*
 
 task_definition:
   app:
@@ -29,15 +33,40 @@ task_definition:
     ports:
       - 8080
     env_vars:
+      APP_NAME: boddle-reservoir
       ENV_NAME:
         Fn::Sub: "${EnvironmentName}"
-      AWS_REGION:
-        Ref: AWS::Region
       ENV_REGION:
         Ref: AWS::Region
       SSM_PATH:
         Fn::Sub: "/boddle/${EnvironmentName}/reservoir"
-    ulimits:
-      - name: nofile
-        softLimit: 65535
-        hardLimit: 65535
+      
+
+ingress_rules:
+  - from: 8080
+    source_sg:
+      Ref: LoadBalancerSecurityGroup
+    desc: allows traffic from ALB
+
+targetgroup:
+  name: engine
+  type: ip
+  container: app
+  port: 8080
+  protocol: http
+  listener: http
+  healthcheck:
+    path: /health
+    code: 200
+  attributes:
+    deregistration_delay.timeout_seconds: 10
+  rules:
+    - host: reservoir.*
+      priority: 10
+
+scaling_policy:
+  target:
+    metric_type: ECSServiceAverageCPUUtilization
+    scale_in_cooldown: 300
+    scale_out_cooldown: 30
+    target_value: 60

@@ -11,18 +11,23 @@ CfhighlanderTemplate do
       ComponentParam 'Memory', '1024'
     end
 
-    Component name: 'app', template: 'ecs-service@2.18.0', render:Inline do
+    Component name: 'app', template: 'fargate-v2@0.7.5', render:Inline, do
       parameter name: 'VPCId', value: FnImportValue(FnSub("${EnvironmentName}-vpc-VPCId"))
-      parameter name: 'SubnetIds', value: FnImportValue(FnSub("${EnvironmentName}-vpc-ComputeSubnets"))
+      parameter name: 'SubnetIds', value: FnSplit(',', FnImportValue(FnSub("${EnvironmentName}-vpc-ComputeSubnets")))
       parameter name: 'EcsCluster', value: FnImportValue(FnSub("${EnvironmentName}-ecs-EcsCluster"))
-
-      parameter name: 'DesiredCount', value: Ref('DesiredCount')
-      parameter name: 'MinCount', value: Ref('MinCount')
-      parameter name: 'MaxCount', value: Ref('MaxCount')
+      parameter name: 'LoadBalancer', value: FnImportValue(FnSub("${EnvironmentName}-alb-LoadBalancer"))
+      parameter name: 'Listener', value: FnImportValue(FnSub("${EnvironmentName}-alb-httpsListener"))
+      parameter name: 'LoadBalancerSecurityGroup', value: FnImportValue(FnSub("${EnvironmentName}-alb-SecurityGroupLoadBalancer"))
+      parameter name: 'DnsDomain', value: FnSub("${EnvironmentName}.env.boddlelearning.com")
+      parameter name: 'DesiredCount', value: FnIf('DontSetDesireCount', Ref('AWS::NoValue'), Ref('DesiredCount'))
+      parameter name: 'appScalingMin', value: Ref('MinCount')
+      parameter name: 'appScalingMax', value: Ref('MaxCount')
+      parameter name: 'MinimumHealthyPercent', value: 100
+      parameter name: 'MaximumPercent', value: 200
       parameter name: 'Cpu', value: Ref('Cpu')
       parameter name: 'Memory', value: Ref('Memory')
       parameter name: 'EnableScaling', value: Ref('EnableScaling')
-      parameter name: 'appVersion', value: component_version
+      parameter name: 'appTaskVersion', value: component_version
     end
 
   end
