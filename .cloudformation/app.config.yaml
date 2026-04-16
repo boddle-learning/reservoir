@@ -46,23 +46,45 @@ ingress_rules:
   - from: 8080
     source_sg:
       Ref: LoadBalancerSecurityGroup
-    desc: allows traffic from ALB
+    desc: allows traffic from public ALB
+  - from: 8080
+    source_sg:
+      Ref: InternalLoadBalancerSecurityGroup
+    desc: allows traffic from internal ALB
 
+# Array form: each entry's `listener` becomes a stack parameter `{listener}Listener`
+# (see hl-component-fargate-v2 fargate-v2.cfhighlander.rb). Rules attach to that listener ARN.
 targetgroup:
-  name: engine
-  type: ip
-  container: app
-  port: 8080
-  protocol: http
-  listener: http
-  healthcheck:
-    path: /health
-    code: 200
-  attributes:
-    deregistration_delay.timeout_seconds: 10
-  rules:
-    - host: reservoir.*
-      priority: 60
+  - name: public
+    type: ip
+    container: app
+    port: 8080
+    protocol: http
+    listener: https
+    healthcheck:
+      path: /health
+      code: 200
+    attributes:
+      deregistration_delay.timeout_seconds: 10
+    rules:
+      - host: reservoir.*
+        path: auth/*
+        priority: 60
+  - name: internal
+    type: ip
+    container: app
+    port: 8080
+    protocol: http
+    listener: internal
+    healthcheck:
+      path: /health
+      code: 200
+    attributes:
+      deregistration_delay.timeout_seconds: 10
+    rules:
+      # host without a dot is suffixed with DnsDomain (see fargate-v2.cfndsl.rb)
+      - host: reservoir-internal
+        priority: 61
 
 scaling_policy:
   target:
