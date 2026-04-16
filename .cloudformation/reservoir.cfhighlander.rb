@@ -11,6 +11,8 @@ CfhighlanderTemplate do
       ComponentParam 'Memory', '1024'
     end
 
+    Condition('DontSetDesireCount', FnEquals(Ref(:DesiredCount), '-1'))
+
     Component name: 'app', template: 'fargate-v2@0.7.5', render:Inline do
       parameter name: 'VPCId', value: FnImportValue(FnSub("${EnvironmentName}-vpc-VPCId"))
       parameter name: 'SubnetIds', value: FnSplit(',', FnImportValue(FnSub("${EnvironmentName}-vpc-ComputeSubnets")))
