@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 
-if [ ! -z ${SSM_PATH} ]; then
-  awsenv
-  source /ssm/.env
+set -e 
+
+if [[ "${SSM_PATH}x" != "x" ]]; then
+  awsenv && eval $(cat /ssm/.env)
 fi
 
-
-exec "$@"
+set -o errexit
+set -o pipefail

@@ -33,13 +33,14 @@ WORKDIR /home/reservoir
 
 # Copy binary from builder
 COPY --from=builder /app/reservoir .
-
+RUN mkdir -p /ssm 
 COPY --from=base2/awsenv:0.2.1 /awsenv /bin/awsenv
 COPY entrypoint.sh /entrypoint
+RUN chown -R reservoir:root /ssm
+
 
 # Change ownership
 RUN chown -R reservoir:reservoir /home/reservoir
-RUN chown -R reservoir:reservoir /entrypoint
 
 
 # Switch to non-root user
