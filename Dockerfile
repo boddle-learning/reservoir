@@ -39,6 +39,8 @@ COPY entrypoint.sh /entrypoint
 
 # Change ownership
 RUN chown -R reservoir:reservoir /home/reservoir
+RUN chown -R reservoir:reservoir /entrypoint
+
 
 # Switch to non-root user
 USER reservoir
