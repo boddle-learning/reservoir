@@ -62,7 +62,7 @@ targetgroup:
     deregistration_delay.timeout_seconds: 10
   rules:
     - host: reservoir.*
-      priority: 10
+      priority: 60
 
 scaling_policy:
   target:
