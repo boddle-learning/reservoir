@@ -112,7 +112,11 @@ func main() {
 		authGroup.GET("/token", authHandler.LoginWithToken)
 		authGroup.POST("/logout", authHandler.Logout)
 
-		// OAuth routes
+		// OAuth token routes: LMS passes pre-obtained OmniAuth tokens for JWT issuance
+		authGroup.POST("/google", oauthHandler.GoogleTokenAuth)
+		authGroup.POST("/clever", oauthHandler.CleverTokenAuth)
+
+		// OAuth redirect-based routes (Reservoir-led flow)
 		authGroup.GET("/google", oauthHandler.GoogleLogin)
 		authGroup.GET("/google/callback", oauthHandler.GoogleCallback)
 		authGroup.GET("/clever", oauthHandler.CleverLogin)
