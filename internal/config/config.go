@@ -83,6 +83,13 @@ type RateLimitConfig struct {
 	Window          time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"10m"`
 	MaxAttempts     int           `envconfig:"RATE_LIMIT_MAX_ATTEMPTS" default:"5"`
 	LockoutDuration time.Duration `envconfig:"RATE_LIMIT_LOCKOUT_DURATION" default:"15m"`
+
+	// Global login throttle (token bucket shared across all instances).
+	// Caps total login throughput to protect downstream systems during
+	// thundering-herd scenarios (e.g. game server outage recovery).
+	// Set GlobalLoginCapacity=0 to disable.
+	GlobalLoginCapacity int     `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_CAPACITY" default:"200"`
+	GlobalLoginRefill   float64 `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC" default:"100"`
 }
 
 // Load loads configuration from environment variables

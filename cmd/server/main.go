@@ -74,6 +74,22 @@ func main() {
 	)
 	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter)
 
+	// Global login throttle (token bucket) — protects downstream systems from
+	// thundering-herd logins after an outage. Set capacity=0 to disable.
+	var globalLoginLimiter middleware.GlobalLoginLimiter
+	if cfg.RateLimit.GlobalLoginCapacity > 0 && cfg.RateLimit.GlobalLoginRefill > 0 {
+		globalLoginLimiter = ratelimit.NewGlobalLimiter(
+			redisClient.Client,
+			"ratelimit:global:login",
+			cfg.RateLimit.GlobalLoginCapacity,
+			cfg.RateLimit.GlobalLoginRefill,
+		)
+		logger.Info("Global login throttle enabled",
+			zap.Int("capacity", cfg.RateLimit.GlobalLoginCapacity),
+			zap.Float64("refill_per_sec", cfg.RateLimit.GlobalLoginRefill),
+		)
+	}
+
 	// Initialize OAuth services
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
@@ -107,19 +123,25 @@ func main() {
 	// Auth routes
 	authGroup := router.Group("/auth")
 	{
-		authGroup.POST("/login", authHandler.Login)
+		// Global login throttle applies to endpoints that mint new tokens from
+		// credentials. Refresh and logout are excluded: refresh flow is already
+		// gated by a valid refresh token, and logout must always succeed.
+		loginQueue := middleware.LoginQueue(globalLoginLimiter)
+
+		authGroup.POST("/login", loginQueue, authHandler.Login)
 		authGroup.POST("/refresh", authHandler.Refresh)
-		authGroup.GET("/token", authHandler.LoginWithToken)
+		authGroup.GET("/token", loginQueue, authHandler.LoginWithToken)
 		authGroup.POST("/logout", authHandler.Logout)
 
-		// OAuth routes
+		// OAuth routes — throttle the callback (which does the actual auth work
+		// and downstream calls), not the redirect initiator.
 		authGroup.GET("/google", oauthHandler.GoogleLogin)
-		authGroup.GET("/google/callback", oauthHandler.GoogleCallback)
+		authGroup.GET("/google/callback", loginQueue, oauthHandler.GoogleCallback)
 		authGroup.GET("/clever", oauthHandler.CleverLogin)
-		authGroup.GET("/clever/callback", oauthHandler.CleverCallback)
+		authGroup.GET("/clever/callback", loginQueue, oauthHandler.CleverCallback)
 
 		// iCloud route — client sends Apple UID directly, no server-side OAuth flow
-		authGroup.POST("/icloud", oauthHandler.ICloudAuth)
+		authGroup.POST("/icloud", loginQueue, oauthHandler.ICloudAuth)
 
 		// Protected routes (require authentication)
 		authGroup.Use(middleware.Auth(authService))
