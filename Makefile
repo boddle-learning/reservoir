@@ -9,7 +9,7 @@ CONTAINER_NAME=boddle-learning/reservoir
 define run-go
 docker run --rm -v $(CURDIR):/src -w /src golang:1.22-alpine sh -c "apk add --no-cache git && $(1)"
 endef
-cfpublish := docker run --rm -v $(CURDIR)/.cloudformation:/src -w /src -e AWS_REGION=${CLOUD_OPSREGION} theonestack/cfhighlander cfpublish
+cfpublish := docker run --rm --platform=linux/x86_64 -v $(CURDIR)/.cloudformation:/src -w /src -e AWS_REGION=${CLOUD_OPSREGION} theonestack/cfhighlander cfpublish
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
