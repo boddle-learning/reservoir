@@ -67,7 +67,7 @@ targetgroup:
       deregistration_delay.timeout_seconds: 10
     rules:
       - host: reservoir.*
-        path: auth/*
+        path: /auth*
         priority: 60
   - name: internal
     type: ip
