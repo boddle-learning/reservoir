@@ -68,7 +68,7 @@ targetgroup:
     rules:
       - host: reservoir.*
         path: /auth*
-        priority: 60
+        priority: 70
   - name: internal
     type: ip
     container: app
@@ -82,7 +82,7 @@ targetgroup:
       deregistration_delay.timeout_seconds: 10
     rules:
       - host: reservoir-internal.*
-        priority: 61
+        priority: 71
 
 scaling_policy:
   target:
