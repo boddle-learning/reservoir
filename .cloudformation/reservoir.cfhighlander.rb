@@ -7,8 +7,8 @@ CfhighlanderTemplate do
       ComponentParam 'MinCount', 1
       ComponentParam 'MaxCount', 1
       ComponentParam 'EnableScaling', 'false'
-      ComponentParam 'Cpu', '512'
-      ComponentParam 'Memory', '1024'
+      ComponentParam 'Cpu', '2048'
+      ComponentParam 'Memory', '4096'
     end
 
     Condition('DontSetDesireCount', FnEquals(Ref(:DesiredCount), '-1'))
