@@ -16,6 +16,7 @@ type Service struct {
 	tokenService   *token.Service
 	tokenBlacklist *token.Blacklist
 	rateLimiter    RateLimiter
+	lastLogin      LastLoginEnqueuer
 }
 
 // RateLimiter interface for rate limiting
@@ -25,18 +26,28 @@ type RateLimiter interface {
 	RecordSuccessfulAttempt(ctx context.Context, email, ipAddress string) error
 }
 
+// LastLoginEnqueuer defers last_logged_on updates off the synchronous
+// auth path. Implementations must not block on the database. Wired in
+// response to the 2026-05-19 outage, where synchronous UPDATE failures
+// against a read-only DB endpoint contributed to CPU saturation.
+type LastLoginEnqueuer interface {
+	Enqueue(userID int)
+}
+
 // NewService creates a new authentication service
 func NewService(
 	userRepo *user.Repository,
 	tokenService *token.Service,
 	blacklist *token.Blacklist,
 	rateLimiter RateLimiter,
+	lastLogin LastLoginEnqueuer,
 ) *Service {
 	return &Service{
 		userRepo:       userRepo,
 		tokenService:   tokenService,
 		tokenBlacklist: blacklist,
 		rateLimiter:    rateLimiter,
+		lastLogin:      lastLogin,
 	}
 }
 
@@ -100,11 +111,8 @@ func (s *Service) AuthenticateEmailPassword(ctx context.Context, email, password
 		_ = s.rateLimiter.RecordSuccessfulAttempt(ctx, email, ipAddress)
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		// Log error but don't fail login
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	// Defer last_logged_on update off the auth hot path.
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Load meta data
 	userWithMeta, err := s.userRepo.FindWithMeta(ctx, usr.ID)
@@ -175,10 +183,8 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 
 	usr := &userWithMeta.User
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	// Defer last_logged_on update off the auth hot path.
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""

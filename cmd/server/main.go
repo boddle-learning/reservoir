@@ -49,6 +49,17 @@ func main() {
 	defer db.Close()
 	logger.Info("Connected to PostgreSQL")
 
+	// Fail fast if DB_HOST resolves to a reader replica or a read-only role.
+	// See PIR 2026-05-19: a reader-pointed DB_HOST silently shipped to prod
+	// and broke last_logged_on writes on every auth request for ~31 hours.
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := db.VerifyWritable(probeCtx); err != nil {
+		probeCancel()
+		logger.Fatal("Database write probe failed", zap.Error(err))
+	}
+	probeCancel()
+	logger.Info("Database write probe passed")
+
 	// Connect to Redis
 	redisClient, err := database.NewRedisClient(cfg.RedisURL)
 	if err != nil {
@@ -72,14 +83,20 @@ func main() {
 		cfg.RateLimit.MaxAttempts,
 		cfg.RateLimit.LockoutDuration,
 	)
-	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter)
+
+	// Background batcher for last_logged_on writes. Started here so the
+	// goroutine runs for the lifetime of the process and shuts down with
+	// the HTTP server.
+	lastLoginWriter := user.NewLastLoginWriter(db.DB, logger)
+
+	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter, lastLoginWriter)
 
 	// Initialize OAuth services
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
 	cleverService := oauth.NewCleverService(cfg.Clever, oauthStateManager)
 
-	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService)
+	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, lastLoginWriter)
 
 	// Initialize handlers
 	authHandler := auth.NewHandler(authService)
@@ -163,6 +180,11 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
+
+	// Flush any queued last_logged_on writes before exit. Bounded by ctx
+	// (same 5s budget as server shutdown) so a stuck DB cannot stall the
+	// process forever.
+	lastLoginWriter.Shutdown(ctx)
 
 	logger.Info("Server stopped")
 }
