@@ -167,6 +167,7 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 		// Delete non-permanent token after use
 		if err := s.userRepo.DeleteLoginToken(ctx, loginToken.ID); err != nil {
 			// Log error but don't fail login
+			user.RecordAuthDBWriteError("login_token_delete")
 			fmt.Printf("failed to delete login token: %v\n", err)
 		}
 	}

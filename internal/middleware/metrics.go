@@ -68,14 +68,6 @@ var (
 			Help: "Number of active (non-blacklisted) JWT tokens",
 		},
 	)
-
-	authDBWriteErrorsTotal = promauto.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "reservoir_auth_db_write_errors_total",
-			Help: "Database write errors on the auth path, by operation. Spikes here preceded the 2026-05-19 cascade outage by ~31 hours and would have surfaced the read-only DB_HOST in seconds.",
-		},
-		[]string{"operation"},
-	)
 )
 
 // Metrics creates a Prometheus metrics middleware
@@ -115,10 +107,4 @@ func RecordRateLimitHit() {
 // SetActiveTokens sets the active tokens gauge
 func SetActiveTokens(count int) {
 	authActiveTokens.Set(float64(count))
-}
-
-// RecordAuthDBWriteError increments the DB write error counter for the
-// given auth-path operation (e.g. "last_logged_on", "login_attempt").
-func RecordAuthDBWriteError(operation string) {
-	authDBWriteErrorsTotal.WithLabelValues(operation).Inc()
 }

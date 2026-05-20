@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"time"
 
@@ -33,7 +34,25 @@ var (
 		Name: "reservoir_last_login_queue_depth",
 		Help: "Current depth of the last_logged_on batch queue.",
 	})
+
+	// authDBWriteErrors counts DB write errors on the auth path, labeled
+	// by operation. Lives here rather than internal/middleware to avoid
+	// a middleware→auth→user→middleware import cycle; callers from other
+	// auth-path packages can import this via internal/user.
+	authDBWriteErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "reservoir_auth_db_write_errors_total",
+			Help: "Database write errors on the auth path, by operation. Spikes here preceded the 2026-05-19 cascade outage by ~31 hours and would have surfaced the read-only DB_HOST in seconds.",
+		},
+		[]string{"operation"},
+	)
 )
+
+// RecordAuthDBWriteError increments the auth-path DB write error counter
+// for the given operation (e.g. "last_logged_on", "login_token_delete").
+func RecordAuthDBWriteError(operation string) {
+	authDBWriteErrors.WithLabelValues(operation).Inc()
+}
 
 const (
 	queueCapacity = 10000
@@ -41,6 +60,12 @@ const (
 	flushInterval = 5 * time.Second
 	flushTimeout  = 5 * time.Second
 )
+
+// sqlExecutor is the subset of *sqlx.DB the writer needs. Defined as an
+// interface so tests can substitute a fake without a live database.
+type sqlExecutor interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
 
 // LastLoginWriter batches last_logged_on UPDATEs off the auth hot path.
 //
@@ -51,19 +76,26 @@ const (
 // best-effort by design, and a slow or failing DB write must not be able
 // to stall auth responses.
 type LastLoginWriter struct {
-	db     *sqlx.DB
+	db     sqlExecutor
 	logger *zap.Logger
 	queue  chan int
-	stop   chan struct{}
-	wg     sync.WaitGroup
+	// stop carries the caller's shutdown context so the final drain flush
+	// honors the same deadline as the rest of graceful shutdown. Buffered
+	// (cap 1) so Shutdown never blocks.
+	stop chan context.Context
+	wg   sync.WaitGroup
 }
 
 func NewLastLoginWriter(db *sqlx.DB, logger *zap.Logger) *LastLoginWriter {
+	return newLastLoginWriter(db, logger)
+}
+
+func newLastLoginWriter(db sqlExecutor, logger *zap.Logger) *LastLoginWriter {
 	w := &LastLoginWriter{
 		db:     db,
 		logger: logger,
 		queue:  make(chan int, queueCapacity),
-		stop:   make(chan struct{}),
+		stop:   make(chan context.Context, 1),
 	}
 	w.wg.Add(1)
 	go w.run()
@@ -84,8 +116,11 @@ func (w *LastLoginWriter) Enqueue(userID int) {
 }
 
 // Shutdown stops the background flusher and drains the queue with one
-// final batch. Returns when draining completes or ctx is cancelled.
+// final batch. The passed ctx bounds the final flush; if it expires
+// before draining completes, Shutdown returns and the goroutine is
+// abandoned (process is exiting anyway).
 func (w *LastLoginWriter) Shutdown(ctx context.Context) {
+	w.stop <- ctx
 	close(w.stop)
 	done := make(chan struct{})
 	go func() {
@@ -107,7 +142,7 @@ func (w *LastLoginWriter) run() {
 
 	pending := make(map[int]struct{}, batchSize)
 
-	flush := func() {
+	flush := func(parent context.Context) {
 		if len(pending) == 0 {
 			return
 		}
@@ -117,7 +152,7 @@ func (w *LastLoginWriter) run() {
 		}
 		pending = make(map[int]struct{}, batchSize)
 
-		ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
+		ctx, cancel := context.WithTimeout(parent, flushTimeout)
 		defer cancel()
 
 		_, err := w.db.ExecContext(ctx,
@@ -126,6 +161,7 @@ func (w *LastLoginWriter) run() {
 		)
 		if err != nil {
 			lastLoginBatchErrors.Inc()
+			RecordAuthDBWriteError("last_logged_on")
 			w.logger.Error("last_logged_on batch failed",
 				zap.Int("batch_size", len(ids)),
 				zap.Error(err),
@@ -137,7 +173,7 @@ func (w *LastLoginWriter) run() {
 
 	for {
 		select {
-		case <-w.stop:
+		case shutdownCtx := <-w.stop:
 			for drained := false; !drained; {
 				select {
 				case id := <-w.queue:
@@ -146,18 +182,18 @@ func (w *LastLoginWriter) run() {
 					drained = true
 				}
 			}
-			flush()
+			flush(shutdownCtx)
 			return
 
 		case id := <-w.queue:
 			pending[id] = struct{}{}
 			lastLoginQueueDepth.Set(float64(len(w.queue)))
 			if len(pending) >= batchSize {
-				flush()
+				flush(context.Background())
 			}
 
 		case <-ticker.C:
-			flush()
+			flush(context.Background())
 		}
 	}
 }
