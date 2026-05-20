@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/boddle/reservoir/internal/token"
 	"github.com/boddle/reservoir/internal/user"
 )
@@ -16,7 +18,8 @@ type Service struct {
 	tokenService   *token.Service
 	tokenBlacklist *token.Blacklist
 	rateLimiter    RateLimiter
-	lastLogin      LastLoginEnqueuer
+	lastLogin      user.LastLoginEnqueuer
+	logger         *zap.Logger
 }
 
 // RateLimiter interface for rate limiting
@@ -26,21 +29,14 @@ type RateLimiter interface {
 	RecordSuccessfulAttempt(ctx context.Context, email, ipAddress string) error
 }
 
-// LastLoginEnqueuer defers last_logged_on updates off the synchronous
-// auth path. Implementations must not block on the database. Wired in
-// response to the 2026-05-19 outage, where synchronous UPDATE failures
-// against a read-only DB endpoint contributed to CPU saturation.
-type LastLoginEnqueuer interface {
-	Enqueue(userID int)
-}
-
 // NewService creates a new authentication service
 func NewService(
 	userRepo *user.Repository,
 	tokenService *token.Service,
 	blacklist *token.Blacklist,
 	rateLimiter RateLimiter,
-	lastLogin LastLoginEnqueuer,
+	lastLogin user.LastLoginEnqueuer,
+	logger *zap.Logger,
 ) *Service {
 	return &Service{
 		userRepo:       userRepo,
@@ -48,6 +44,7 @@ func NewService(
 		tokenBlacklist: blacklist,
 		rateLimiter:    rateLimiter,
 		lastLogin:      lastLogin,
+		logger:         logger,
 	}
 }
 
@@ -168,7 +165,7 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 		if err := s.userRepo.DeleteLoginToken(ctx, loginToken.ID); err != nil {
 			// Log error but don't fail login
 			user.RecordAuthDBWriteError("login_token_delete")
-			fmt.Printf("failed to delete login token: %v\n", err)
+			s.logger.Warn("failed to delete login token", zap.Error(err))
 		}
 	}
 

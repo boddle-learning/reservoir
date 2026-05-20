@@ -6,10 +6,13 @@ CfhighlanderTemplate do
       # Defaults sized for ~5,000 req/min of live auth traffic. See
       # docs/CAPACITY_PLANNING.md. Single-task / no-scaling defaults
       # contributed to the 2026-05-19 outage and must not be the default
-      # for any environment that takes live traffic.
+      # for any environment that takes live traffic. MaxCount=8 matches
+      # the prod1 override and leaves headroom for the school-day peak
+      # (incident relief required ~16; an environment expecting that
+      # load should set its own override).
       ComponentParam 'DesiredCount', 2
       ComponentParam 'MinCount', 2
-      ComponentParam 'MaxCount', 4
+      ComponentParam 'MaxCount', 8
       ComponentParam 'EnableScaling', 'true'
       ComponentParam 'Cpu', '4096'     # 4 vCPU
       ComponentParam 'Memory', '8192'  # 8 GB (Fargate minimum at 4 vCPU)

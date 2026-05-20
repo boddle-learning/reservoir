@@ -89,7 +89,7 @@ func main() {
 	// the HTTP server.
 	lastLoginWriter := user.NewLastLoginWriter(db.DB, logger)
 
-	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter, lastLoginWriter)
+	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter, lastLoginWriter, logger)
 
 	// Initialize OAuth services
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
@@ -181,10 +181,12 @@ func main() {
 		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
 
-	// Flush any queued last_logged_on writes before exit. Bounded by ctx
-	// (same 5s budget as server shutdown) so a stuck DB cannot stall the
-	// process forever.
-	lastLoginWriter.Shutdown(ctx)
+	// Flush any queued last_logged_on writes before exit. Use a fresh
+	// 3s deadline rather than reusing the server-shutdown ctx, which
+	// has already had part of its budget consumed by srv.Shutdown above.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer flushCancel()
+	lastLoginWriter.Shutdown(flushCtx)
 
 	logger.Info("Server stopped")
 }

@@ -61,6 +61,18 @@ const (
 	flushTimeout  = 5 * time.Second
 )
 
+// LastLoginEnqueuer defers last_logged_on updates off the synchronous
+// auth path. Implementations must not block on the database. Wired in
+// response to the 2026-05-19 outage, where synchronous UPDATE failures
+// against a read-only DB endpoint contributed to CPU saturation.
+//
+// Lives in package user (alongside *LastLoginWriter, the production
+// implementation) so both auth and oauth — which already import user
+// for Repository — can depend on it without sibling-package coupling.
+type LastLoginEnqueuer interface {
+	Enqueue(userID int)
+}
+
 // sqlExecutor is the subset of *sqlx.DB the writer needs. Defined as an
 // interface so tests can substitute a fake without a live database.
 type sqlExecutor interface {
@@ -118,10 +130,11 @@ func (w *LastLoginWriter) Enqueue(userID int) {
 // Shutdown stops the background flusher and drains the queue with one
 // final batch. The passed ctx bounds the final flush; if it expires
 // before draining completes, Shutdown returns and the goroutine is
-// abandoned (process is exiting anyway).
+// abandoned (process is exiting anyway). Not safe to call twice — the
+// stop channel is buffered cap-1 and run() consumes the value exactly
+// once, so a second call would block forever on the send.
 func (w *LastLoginWriter) Shutdown(ctx context.Context) {
 	w.stop <- ctx
-	close(w.stop)
 	done := make(chan struct{})
 	go func() {
 		w.wg.Wait()

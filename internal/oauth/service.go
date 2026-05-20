@@ -16,7 +16,7 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
-	lastLogin    auth.LastLoginEnqueuer
+	lastLogin    user.LastLoginEnqueuer
 }
 
 // NewAuthService creates a new OAuth authentication service
@@ -25,7 +25,7 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
-	lastLogin auth.LastLoginEnqueuer,
+	lastLogin user.LastLoginEnqueuer,
 ) *AuthService {
 	return &AuthService{
 		userRepo:     userRepo,
