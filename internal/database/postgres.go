@@ -51,6 +51,31 @@ func (db *DB) Health(ctx context.Context) error {
 	return db.PingContext(ctx)
 }
 
+// NewPostgresReaderDB opens a connection to the read replica configured via
+// DB_READER_HOST. All other credentials (port, user, password, dbname,
+// sslmode) are shared with the writer. The caller is responsible for closing
+// the returned DB.
+func NewPostgresReaderDB(cfg config.DatabaseConfig) (*DB, error) {
+	db, err := sqlx.Connect("postgres", cfg.ReaderConnectionString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to reader database: %w", err)
+	}
+
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping reader database: %w", err)
+	}
+
+	return &DB{DB: db}, nil
+}
+
 // VerifyWritable confirms the connection can execute writes against the
 // users table. Run at startup so a misconfigured DB_HOST that resolves to
 // a reader replica or a read-only role fails the task before it joins the

@@ -41,13 +41,25 @@ func main() {
 
 	logger.Info("Starting Boddle Auth Gateway", zap.String("env", cfg.Env))
 
-	// Connect to PostgreSQL
+	// Connect to PostgreSQL writer
 	db, err := database.NewPostgresDB(cfg.Database)
 	if err != nil {
-		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
+		logger.Fatal("Failed to connect to PostgreSQL writer", zap.Error(err))
 	}
 	defer db.Close()
-	logger.Info("Connected to PostgreSQL")
+	logger.Info("Connected to PostgreSQL writer")
+
+	// Connect to PostgreSQL reader replica (DB_READER_HOST). When the env var
+	// is absent we reuse the writer handle so no second pool is opened.
+	readerDB := db
+	if cfg.Database.HasReader() {
+		readerDB, err = database.NewPostgresReaderDB(cfg.Database)
+		if err != nil {
+			logger.Fatal("Failed to connect to PostgreSQL reader", zap.Error(err))
+		}
+		defer readerDB.Close()
+		logger.Info("Connected to PostgreSQL reader replica", zap.String("host", cfg.Database.ReaderHost))
+	}
 
 	// Fail fast if DB_HOST resolves to a reader replica or a read-only role.
 	// See PIR 2026-05-19: a reader-pointed DB_HOST silently shipped to prod
@@ -69,7 +81,7 @@ func main() {
 	logger.Info("Connected to Redis")
 
 	// Initialize services
-	userRepo := user.NewRepository(db.DB)
+	userRepo := user.NewRepository(db.DB, readerDB.DB)
 	tokenService := token.NewService(
 		cfg.JWT.SecretKey,
 		cfg.JWT.RefreshSecretKey,
@@ -82,6 +94,7 @@ func main() {
 		cfg.RateLimit.Window,
 		cfg.RateLimit.MaxAttempts,
 		cfg.RateLimit.LockoutDuration,
+		logger,
 	)
 
 	// Background batcher for last_logged_on writes. Started here so the
@@ -99,7 +112,11 @@ func main() {
 	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, lastLoginWriter)
 
 	// Initialize handlers
-	authHandler := auth.NewHandler(authService)
+	var readerPinger auth.DBPinger
+	if cfg.Database.HasReader() {
+		readerPinger = readerDB
+	}
+	authHandler := auth.NewHandler(authService, db, readerPinger)
 	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService)
 
 	// Set up Gin router

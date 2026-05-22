@@ -70,8 +70,7 @@ func (s *Service) AuthenticateEmailPassword(ctx context.Context, email, password
 	if s.rateLimiter != nil {
 		allowed, _, lockoutRemaining, err := s.rateLimiter.CheckLoginAttempt(ctx, email, ipAddress)
 		if err != nil {
-			// Log error but don't fail login
-			fmt.Printf("rate limiter error: %v\n", err)
+			s.logger.Warn("rate limiter error", zap.Error(err))
 		} else if !allowed {
 			return nil, fmt.Errorf("too many failed attempts, locked out for %v", lockoutRemaining.Round(time.Second))
 		}

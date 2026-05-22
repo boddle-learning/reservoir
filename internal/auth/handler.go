@@ -1,21 +1,32 @@
 package auth
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/boddle/reservoir/internal/token"
 	"github.com/boddle/reservoir/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
-// Handler handles authentication HTTP requests
-type Handler struct {
-	service *Service
+// DBPinger is satisfied by *database.DB. Defined here to avoid an import
+// cycle between auth and database packages.
+type DBPinger interface {
+	Health(ctx context.Context) error
 }
 
-// NewHandler creates a new authentication handler
-func NewHandler(service *Service) *Handler {
-	return &Handler{service: service}
+// Handler handles authentication HTTP requests
+type Handler struct {
+	service  *Service
+	dbWriter DBPinger
+	dbReader DBPinger // nil when no dedicated read replica is configured
+}
+
+// NewHandler creates a new authentication handler. Pass nil for dbReader when
+// no read replica is configured — it will be omitted from the health response.
+func NewHandler(service *Service, dbWriter DBPinger, dbReader DBPinger) *Handler {
+	return &Handler{service: service, dbWriter: dbWriter, dbReader: dbReader}
 }
 
 // Login handles email/password login
@@ -167,10 +178,28 @@ func (h *Handler) Refresh(c *gin.Context) {
 	response.Success(c, http.StatusOK, result)
 }
 
-// Health returns health status
+// Health returns service health with DB connectivity status.
+// Always returns HTTP 200 — DB errors are reported in the body, not the status
+// code, so ALB health checks never kill tasks due to a transient DB blip.
 // GET /health
 func (h *Handler) Health(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "healthy",
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	dbStatus := func(p DBPinger) string {
+		if err := p.Health(ctx); err != nil {
+			return "error"
+		}
+		return "ok"
+	}
+
+	body := gin.H{
+		"status":    "healthy",
+		"db_writer": dbStatus(h.dbWriter),
+	}
+	if h.dbReader != nil {
+		body["db_reader"] = dbStatus(h.dbReader)
+	}
+
+	c.JSON(http.StatusOK, body)
 }
