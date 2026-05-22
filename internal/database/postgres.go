@@ -25,8 +25,8 @@ func NewPostgresDB(cfg config.DatabaseConfig) (*DB, error) {
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(25)
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxOpenConns / 2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(10 * time.Minute)
 
@@ -61,8 +61,8 @@ func NewPostgresReaderDB(cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("failed to connect to reader database: %w", err)
 	}
 
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(25)
+	db.SetMaxOpenConns(cfg.ReaderMaxOpenConns)
+	db.SetMaxIdleConns(cfg.ReaderMaxOpenConns / 2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(10 * time.Minute)
 

@@ -35,13 +35,15 @@ type Config struct {
 
 // DatabaseConfig holds PostgreSQL configuration
 type DatabaseConfig struct {
-	Host       string `envconfig:"DB_HOST" required:"true"`
-	ReaderHost string `envconfig:"DB_READER_HOST"` // optional; falls back to DB_HOST when unset
-	Port       int    `envconfig:"DB_PORT" default:"5432"`
-	User       string `envconfig:"DB_USER" required:"true"`
-	Password   string `envconfig:"DB_PASSWORD" required:"true"`
-	Name       string `envconfig:"DB_NAME" required:"true"`
-	SSLMode    string `envconfig:"DB_SSL_MODE" default:"require"`
+	Host               string `envconfig:"DB_HOST" required:"true"`
+	ReaderHost         string `envconfig:"DB_READER_HOST"`                    // optional; falls back to DB_HOST when unset
+	Port               int    `envconfig:"DB_PORT" default:"5432"`
+	User               string `envconfig:"DB_USER" required:"true"`
+	Password           string `envconfig:"DB_PASSWORD" required:"true"`
+	Name               string `envconfig:"DB_NAME" required:"true"`
+	SSLMode            string `envconfig:"DB_SSL_MODE" default:"require"`
+	MaxOpenConns       int    `envconfig:"DB_MAX_OPEN_CONNS" default:"25"`        // floor(r7g.8xlarge_max_connections * 0.8 / max_tasks); override per env in SSM
+	ReaderMaxOpenConns int    `envconfig:"DB_READER_MAX_OPEN_CONNS" default:"11"` // floor(serverless_v2_min_acus_max_connections * 0.8 / max_tasks); override per env in SSM
 }
 
 // ConnectionString returns the writer PostgreSQL connection string.
