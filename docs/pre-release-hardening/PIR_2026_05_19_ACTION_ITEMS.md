@@ -123,9 +123,14 @@ The inline comment cites the 2026-05-19 outage so the rationale survives future 
 
 ## P2
 
-### 13. Measure user impact for this incident — **Open**
+### 13. Measure user impact for this incident — **Template + IR checklist ready (2026-05-19 measurement pending)**
 
-Failed-login rate from LMS logs during 12:35–13:30 UTC has not been measured. Also needs "measure users affected" added to the standard incident response checklist.
+Two artifacts:
+
+- [`docs/operations/INCIDENT_RESPONSE_CHECKLIST.md`](../operations/INCIDENT_RESPONSE_CHECKLIST.md) makes "measure users affected during the window" step 8 of the standard incident response checklist, with a 24-hour deadline so logs don't rotate before measurement.
+- [`docs/pre-release-hardening/USER_IMPACT_MEASUREMENT.md`](./USER_IMPACT_MEASUREMENT.md) provides SQL templates against `login_attempts` (the durable record), CloudWatch Logs Insights templates for breakdown by auth method, a deliberately liberal definition of "affected", and a worked-example skeleton ready to populate against the 2026-05-19 window.
+
+**Still outstanding:** run the SQL against the 2026-05-19 12:35–13:30 UTC window and populate the worked-example section. Archive the raw query output under `docs/pre-release-hardening/incident-impact/2026-05-19/` and update the ClickUp PIR with the measured number.
 
 ### 14. Read replica usage in dev — **Open**
 
