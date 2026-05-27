@@ -2,11 +2,11 @@
 
 Code-side tracking for action items from the [Revised PIR May 2026 19 — Reservoir Auth CPU Saturation & LMS Cascade Outage](https://app.clickup.com/9014075154/v/dc/8cmfqrj-53074/8cmfqrj-87414).
 
-The ClickUp PIR is the source of truth for *what should be done*. This document is the source of truth for *what is done in code* on the `csj/post-incident-hardening` branch. The two are kept in sync manually.
+The ClickUp PIR is the source of truth for *what should be done*. This document is the source of truth for *what is done in code* on the `csj/post-incident-hardening` branch (most items) and the `csj/newrelic-apm` branch (item 7 APM). The two are kept in sync manually.
 
 **Re-deploy gate:** items 1–3 (all P0) must be done before Reservoir is re-enabled in the LMS auth path.
 
-Last reviewed: 2026-05-27 against branch `csj/post-incident-hardening`.
+Last reviewed: 2026-05-27 against branches `csj/post-incident-hardening` and `csj/newrelic-apm`.
 
 ---
 
@@ -73,27 +73,38 @@ Pool sizes are env-configurable with defaults sized against the RDS writer's `ma
 - Startup invocation: [`cmd/server/main.go`](../../cmd/server/main.go) — runs with a 5s context, `logger.Fatal` on failure before HTTP server starts
 - Runtime check: `/health` reports `db_writer` and (when configured) `db_reader` independently, always HTTP 200 so ALB doesn't kill tasks on a transient blip — see [`internal/auth/handler.go`](../../internal/auth/handler.go)
 
-### 7. APM + structured error logging — **Partial**
+### 7. APM + structured error logging — **Done in code (operational rollout pending)**
 
-Structured logging is in: `fmt.Printf` has been removed from every auth path, replaced with `zap` across `internal/auth`, `internal/oauth`, and the `LastLoginWriter`. The stdout-mutex contention path identified in the PIR is gone.
+Two pieces, both addressed:
 
-**Still outstanding:** New Relic APM (or equivalent) integration. `go.mod` has no `newrelic`/`nrgin` dependency yet. APM instrumentation needs to be added before this item can be closed.
+- **Structured logging** (on `csj/post-incident-hardening`): `fmt.Printf` has been removed from every auth path, replaced with `zap` across `internal/auth`, `internal/oauth`, and the `LastLoginWriter`. The stdout-mutex contention path identified in the PIR is gone.
+- **New Relic APM** (separate branch `csj/newrelic-apm`, [PR #13](https://github.com/boddle-learning/reservoir/pull/13)): `nrgin` middleware wraps the Gin router; the `nrpostgres` driver wraps the sqlx pool so each query becomes a datastore segment under the surrounding HTTP transaction. Disabled when `NEW_RELIC_LICENSE_KEY` is empty so dev/CI boot identically to prod. See [`docs/OBSERVABILITY.md`](../OBSERVABILITY.md) (lands with PR #13) for the full operational story.
 
-### 8. Profile Reservoir CPU under realistic auth load — **Open**
+**Remaining operational step:** set `NEW_RELIC_LICENSE_KEY` in SSM at `/boddle/${EnvironmentName}/reservoir/NEW_RELIC_LICENSE_KEY` per environment. This is config, not code, and is out of scope for this branch. Until done, the agent runs disabled — no APM data shows up in New Relic, but the service still boots normally.
 
-No profiling artifacts on the branch. Required to attribute saturation contributors (failed-write path vs. bcrypt cost vs. `fmt.Printf` contention) and to validate the PIR's root-cause narrative.
+### 8. Profile Reservoir CPU under realistic auth load — **Runbook ready (profile run pending)**
 
-### 9. Document and test rollback path — **Open**
+Runbook at [`docs/operations/CPU_PROFILING.md`](../operations/CPU_PROFILING.md) covers when to run, how to expose pprof on a non-public port, how to capture CPU/heap/goroutine profiles, what to look for in the top-N (with a contributor-attribution table mapping symbols to PIR-identified causes), and where to archive results.
 
-No rollback playbook on the branch. Needs ≥2 people able to execute without single-person dependency.
+**Still outstanding:** actually run the profiling exercise against a representative auth load and archive results under `docs/pre-release-hardening/profiles/`. The runbook calls out the dev-environment prerequisites (user table seeding, full auth-path mix in the load test).
 
-### 10. Post-launch monitoring checklist — **Open**
+### 9. Document and test rollback path — **Runbook ready (dry-run pending)**
 
-No checklist or named owner per deploy yet.
+Runbook at [`docs/operations/ROLLBACK.md`](../operations/ROLLBACK.md) covers: who can execute (with a quarterly access-verification check baked in), a decision tree for whether to roll back Reservoir vs the LMS vs scale out first, step-by-step Reservoir rollback (with the explicit "communicate before executing" two-executor checkpoint the PIR called for), recovery signals to watch, and a quarterly practice cadence.
 
-### 11. Write-path smoke test against prod Reservoir before enabling — **Open**
+**Still outstanding:** identify the primary and backup executors by name and run the first quarterly practice. The runbook is structured so a stranger to the system could follow it under pressure, but it needs to actually be run end-to-end once before the next prod deploy.
 
-No smoke-test runbook or automation. Item 6's write probe is the in-process equivalent; item 11 is the external check executed before enabling Reservoir in the LMS auth path.
+### 10. Post-launch monitoring checklist — **Checklist ready (adoption pending)**
+
+Checklist at [`docs/operations/POST_LAUNCH_MONITORING.md`](../operations/POST_LAUNCH_MONITORING.md) defines what counts as a major deploy, the three named roles (deploy owner / monitoring owner / backup), the window definition (must cover the next traffic peak — the 2026-05-19 failure didn't surface until ~7h after deploy at the school-morning peak), what to watch with concrete metric names, a time-after-deploy cadence with explicit checkpoints, and escalation triggers with pre-authorized rollback authority for the monitoring owner.
+
+**Still outstanding:** adopt on the next non-trivial deploy and add "monitoring owner assigned" to the PR merge checklist after three trial deploys.
+
+### 11. Write-path smoke test against prod Reservoir before enabling — **Script + runbook ready (first run pending)**
+
+Script at [`scripts/smoke-write-path.sh`](../../scripts/smoke-write-path.sh) and runbook at [`docs/operations/PRE_DEPLOY_SMOKE_TEST.md`](../operations/PRE_DEPLOY_SMOKE_TEST.md). The script: reads pre-test metrics + `last_logged_on`, hits `POST /auth/login`, polls for `last_logged_on` to advance within 15s (Reservoir's async writer flush interval), and asserts `reservoir_auth_db_write_errors_total` didn't increase. Pass = exit 0; fail = exit 1 with a specific symptom. Complementary to PIR #6's in-process `VerifyWritable` probe — startup probe catches reader-pointed `DB_HOST` at boot; this smoke catches anything that probe might miss plus the LMS↔Reservoir integration end-to-end.
+
+**Still outstanding:** create the dedicated smoke-test user account in each environment, provision the SSM secrets (`/boddle/${ENVIRONMENT}/reservoir-smoke/PASSWORD` + `LMS_TOKEN`), confirm an LMS endpoint exposes the current user's `last_logged_on` (or add one), and run the smoke once against the next pre-deploy.
 
 ### 12. Audit production autoscaling configuration — **Done**
 
@@ -112,13 +123,20 @@ The inline comment cites the 2026-05-19 outage so the rationale survives future 
 
 ## P2
 
-### 13. Measure user impact for this incident — **Open**
+### 13. Measure user impact for this incident — **Template + IR checklist ready (2026-05-19 measurement pending)**
 
-Failed-login rate from LMS logs during 12:35–13:30 UTC has not been measured. Also needs "measure users affected" added to the standard incident response checklist.
+Two artifacts:
 
-### 14. Read replica usage in dev — **Open**
+- [`docs/operations/INCIDENT_RESPONSE_CHECKLIST.md`](../operations/INCIDENT_RESPONSE_CHECKLIST.md) makes "measure users affected during the window" step 8 of the standard incident response checklist, with a 24-hour deadline so logs don't rotate before measurement.
+- [`docs/pre-release-hardening/USER_IMPACT_MEASUREMENT.md`](./USER_IMPACT_MEASUREMENT.md) provides SQL templates against `login_attempts` (the durable record), CloudWatch Logs Insights templates for breakdown by auth method, a deliberately liberal definition of "affected", and a worked-example skeleton ready to populate against the 2026-05-19 window.
 
-Dev environment configuration not yet updated.
+**Still outstanding:** run the SQL against the 2026-05-19 12:35–13:30 UTC window and populate the worked-example section. Archive the raw query output under `docs/pre-release-hardening/incident-impact/2026-05-19/` and update the ClickUp PIR with the measured number.
+
+### 14. Read replica usage in dev — **Runbook ready (SSM update + rollout pending)**
+
+Runbook at [`docs/operations/DB_READER_SETUP.md`](../operations/DB_READER_SETUP.md) covers identifying the reader endpoint per RDS topology, the exact `aws ssm put-parameter` commands, the boot-log signature for a successful reader connect, the `/health` verification, expected NR segment routing after enablement, and a per-environment rollout order (dev → staging → prod1) with conservative pacing motivated by the symmetric risk of misconfiguration.
+
+**Still outstanding:** run the `aws ssm put-parameter` commands for `/boddle/dev/reservoir/DB_READER_HOST`, restart dev, confirm `/health` reports `db_reader: ok`. Then start the staging/prod1 cadence per the rollout-order table.
 
 ### 15. New Relic accounts for all LMS devs — **Done (per PIR)**
 
@@ -134,8 +152,16 @@ Already marked complete in the PIR.
 
 | Status | Count | Items |
 |---|---|---|
-| Done | 9 | 1, 2, 3, 4, 5, 6, 12, 15, 16 |
-| Partial | 1 | 7 (logging done; APM pending) |
-| Open | 6 | 8, 9, 10, 11, 13, 14 |
+| Done in code | 10 | 1, 2, 3, 4, 5, 6, 7, 12, 15, 16 |
+| Runbook/template ready (operational step pending) | 6 | 8, 9, 10, 11, 13, 14 |
+| Truly open | 0 | — |
 
-Re-deploy gates 1–3 are all done. The remaining work is operational hardening (profiling, runbooks, monitoring, APM) rather than code that blocks re-enabling Reservoir in the LMS auth path.
+Re-deploy gates 1–3 are all done in code. Every remaining item has a checked-in artifact — a runbook, a checklist, a smoke-test script, or a measurement template — and a clearly defined operational follow-up. The PIR's action-item list is no longer a list of unstarted work; it's a list of artifacts waiting for the operator to execute against them.
+
+**Three distinct "done" states are in play here:**
+
+1. **Done in code** — the change lives on a branch (PR #12 for items 1, 2, 3, 5, 6, 12; PR #13 for the APM half of item 7). Becomes "done in production" when the PR merges and the relevant SSM values land per environment.
+2. **Runbook/template ready** — the artifact that unblocks the operational work is checked in under [`docs/operations/`](../operations/) or [`docs/pre-release-hardening/`](.). The remaining step is human execution (run the profile, dry-run the rollback, measure the impact, set the SSM key).
+3. **Done in production** — the operational follow-up has actually happened. Every item in the table above is still pending at this level.
+
+The detail per item is in each section above; each item names its specific operational follow-up.
