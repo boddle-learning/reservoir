@@ -2,11 +2,11 @@
 
 Code-side tracking for action items from the [Revised PIR May 2026 19 — Reservoir Auth CPU Saturation & LMS Cascade Outage](https://app.clickup.com/9014075154/v/dc/8cmfqrj-53074/8cmfqrj-87414).
 
-The ClickUp PIR is the source of truth for *what should be done*. This document is the source of truth for *what is done in code* on the `csj/post-incident-hardening` branch. The two are kept in sync manually.
+The ClickUp PIR is the source of truth for *what should be done*. This document is the source of truth for *what is done in code* on the `csj/post-incident-hardening` branch (most items) and the `csj/newrelic-apm` branch (item 7 APM). The two are kept in sync manually.
 
 **Re-deploy gate:** items 1–3 (all P0) must be done before Reservoir is re-enabled in the LMS auth path.
 
-Last reviewed: 2026-05-27 against branch `csj/post-incident-hardening`.
+Last reviewed: 2026-05-27 against branches `csj/post-incident-hardening` and `csj/newrelic-apm`.
 
 ---
 
@@ -73,11 +73,14 @@ Pool sizes are env-configurable with defaults sized against the RDS writer's `ma
 - Startup invocation: [`cmd/server/main.go`](../../cmd/server/main.go) — runs with a 5s context, `logger.Fatal` on failure before HTTP server starts
 - Runtime check: `/health` reports `db_writer` and (when configured) `db_reader` independently, always HTTP 200 so ALB doesn't kill tasks on a transient blip — see [`internal/auth/handler.go`](../../internal/auth/handler.go)
 
-### 7. APM + structured error logging — **Partial**
+### 7. APM + structured error logging — **Done in code (operational rollout pending)**
 
-Structured logging is in: `fmt.Printf` has been removed from every auth path, replaced with `zap` across `internal/auth`, `internal/oauth`, and the `LastLoginWriter`. The stdout-mutex contention path identified in the PIR is gone.
+Two pieces, both addressed:
 
-**Still outstanding:** New Relic APM (or equivalent) integration. `go.mod` has no `newrelic`/`nrgin` dependency yet. APM instrumentation needs to be added before this item can be closed.
+- **Structured logging** (on `csj/post-incident-hardening`): `fmt.Printf` has been removed from every auth path, replaced with `zap` across `internal/auth`, `internal/oauth`, and the `LastLoginWriter`. The stdout-mutex contention path identified in the PIR is gone.
+- **New Relic APM** (separate branch `csj/newrelic-apm`, [PR #13](https://github.com/boddle-learning/reservoir/pull/13)): `nrgin` middleware wraps the Gin router; the `nrpostgres` driver wraps the sqlx pool so each query becomes a datastore segment under the surrounding HTTP transaction. Disabled when `NEW_RELIC_LICENSE_KEY` is empty so dev/CI boot identically to prod. See [`docs/OBSERVABILITY.md`](../OBSERVABILITY.md) (lands with PR #13) for the full operational story.
+
+**Remaining operational step:** set `NEW_RELIC_LICENSE_KEY` in SSM at `/boddle/${EnvironmentName}/reservoir/NEW_RELIC_LICENSE_KEY` per environment. This is config, not code, and is out of scope for this branch. Until done, the agent runs disabled — no APM data shows up in New Relic, but the service still boots normally.
 
 ### 8. Profile Reservoir CPU under realistic auth load — **Open**
 
@@ -134,8 +137,9 @@ Already marked complete in the PIR.
 
 | Status | Count | Items |
 |---|---|---|
-| Done | 9 | 1, 2, 3, 4, 5, 6, 12, 15, 16 |
-| Partial | 1 | 7 (logging done; APM pending) |
+| Done in code | 10 | 1, 2, 3, 4, 5, 6, 7, 12, 15, 16 |
 | Open | 6 | 8, 9, 10, 11, 13, 14 |
 
-Re-deploy gates 1–3 are all done. The remaining work is operational hardening (profiling, runbooks, monitoring, APM) rather than code that blocks re-enabling Reservoir in the LMS auth path.
+Re-deploy gates 1–3 are all done. The remaining work is operational hardening (profiling, runbooks, monitoring, the per-env New Relic license key) rather than code that blocks re-enabling Reservoir in the LMS auth path.
+
+**"Done in code" vs "Done in production":** the items above are done on branch — [PR #12](https://github.com/boddle-learning/reservoir/pull/12) for items 1, 2, 3, 5, 6, 12 and [PR #13](https://github.com/boddle-learning/reservoir/pull/13) for the APM half of item 7. They become done in production when those PRs merge and the relevant SSM values land in each environment.
