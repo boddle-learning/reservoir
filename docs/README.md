@@ -27,6 +27,7 @@ Deployment, observability, and the operational runbooks introduced in the post-i
 - **[Deployment](DEPLOYMENT.md)** - AWS ECS / CloudFormation deployment, SSM parameters
 - **[Observability](OBSERVABILITY.md)** - New Relic APM, Prometheus metrics, structured logging
 - **[Capacity Planning](CAPACITY_PLANNING.md)** - Sizing, scaling, connection budgets
+- **[PR Review Automation](PR_REVIEW_AUTOMATION.md)** - Claude code-review and security-review agents, shellcheck CI, auth/setup, costs
 - **[CPU Profiling](operations/CPU_PROFILING.md)** - When and how to capture pprof against Reservoir under load (PIR #8)
 - **[Rollback](operations/ROLLBACK.md)** - Decision tree, two-executor protocol, recovery signals (PIR #9)
 - **[Post-Launch Monitoring](operations/POST_LAUNCH_MONITORING.md)** - Named-owner ritual for every major deploy (PIR #10)
