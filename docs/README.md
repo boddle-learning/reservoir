@@ -25,6 +25,7 @@ Documentation of the Go authentication gateway architecture.
 - **[Deployment](DEPLOYMENT.md)** - AWS ECS / CloudFormation deployment, SSM parameters
 - **[Observability](OBSERVABILITY.md)** - New Relic APM, Prometheus metrics, structured logging
 - **[Capacity Planning](CAPACITY_PLANNING.md)** - Sizing, scaling, connection budgets
+- **[PR Review Automation](PR_REVIEW_AUTOMATION.md)** - Claude code-review and security-review agents, shellcheck CI, auth/setup, costs
 
 ### Migration
 Documentation for transitioning from Rails to Go authentication.
