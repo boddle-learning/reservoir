@@ -153,8 +153,15 @@ Already marked complete in the PIR.
 | Status | Count | Items |
 |---|---|---|
 | Done in code | 10 | 1, 2, 3, 4, 5, 6, 7, 12, 15, 16 |
-| Open | 6 | 8, 9, 10, 11, 13, 14 |
+| Runbook/template ready (operational step pending) | 6 | 8, 9, 10, 11, 13, 14 |
+| Truly open | 0 | — |
 
-Re-deploy gates 1–3 are all done. The remaining work is operational hardening (profiling, runbooks, monitoring, the per-env New Relic license key) rather than code that blocks re-enabling Reservoir in the LMS auth path.
+Re-deploy gates 1–3 are all done in code. Every remaining item has a checked-in artifact — a runbook, a checklist, a smoke-test script, or a measurement template — and a clearly defined operational follow-up. The PIR's action-item list is no longer a list of unstarted work; it's a list of artifacts waiting for the operator to execute against them.
 
-**"Done in code" vs "Done in production":** the items above are done on branch — [PR #12](https://github.com/boddle-learning/reservoir/pull/12) for items 1, 2, 3, 5, 6, 12 and [PR #13](https://github.com/boddle-learning/reservoir/pull/13) for the APM half of item 7. They become done in production when those PRs merge and the relevant SSM values land in each environment.
+**Three distinct "done" states are in play here:**
+
+1. **Done in code** — the change lives on a branch (PR #12 for items 1, 2, 3, 5, 6, 12; PR #13 for the APM half of item 7). Becomes "done in production" when the PR merges and the relevant SSM values land per environment.
+2. **Runbook/template ready** — the artifact that unblocks the operational work is checked in under [`docs/operations/`](../operations/) or [`docs/pre-release-hardening/`](.). The remaining step is human execution (run the profile, dry-run the rollback, measure the impact, set the SSM key).
+3. **Done in production** — the operational follow-up has actually happened. Every item in the table above is still pending at this level.
+
+The detail per item is in each section above; each item names its specific operational follow-up.
