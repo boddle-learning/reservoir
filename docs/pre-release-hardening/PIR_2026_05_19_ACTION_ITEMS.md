@@ -94,9 +94,11 @@ Runbook at [`docs/operations/ROLLBACK.md`](../operations/ROLLBACK.md) covers: wh
 
 **Still outstanding:** identify the primary and backup executors by name and run the first quarterly practice. The runbook is structured so a stranger to the system could follow it under pressure, but it needs to actually be run end-to-end once before the next prod deploy.
 
-### 10. Post-launch monitoring checklist — **Open**
+### 10. Post-launch monitoring checklist — **Checklist ready (adoption pending)**
 
-No checklist or named owner per deploy yet.
+Checklist at [`docs/operations/POST_LAUNCH_MONITORING.md`](../operations/POST_LAUNCH_MONITORING.md) defines what counts as a major deploy, the three named roles (deploy owner / monitoring owner / backup), the window definition (must cover the next traffic peak — the 2026-05-19 failure didn't surface until ~7h after deploy at the school-morning peak), what to watch with concrete metric names, a time-after-deploy cadence with explicit checkpoints, and escalation triggers with pre-authorized rollback authority for the monitoring owner.
+
+**Still outstanding:** adopt on the next non-trivial deploy and add "monitoring owner assigned" to the PR merge checklist after three trial deploys.
 
 ### 11. Write-path smoke test against prod Reservoir before enabling — **Open**
 
