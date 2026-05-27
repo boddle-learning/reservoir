@@ -132,9 +132,11 @@ Two artifacts:
 
 **Still outstanding:** run the SQL against the 2026-05-19 12:35–13:30 UTC window and populate the worked-example section. Archive the raw query output under `docs/pre-release-hardening/incident-impact/2026-05-19/` and update the ClickUp PIR with the measured number.
 
-### 14. Read replica usage in dev — **Open**
+### 14. Read replica usage in dev — **Runbook ready (SSM update + rollout pending)**
 
-Dev environment configuration not yet updated.
+Runbook at [`docs/operations/DB_READER_SETUP.md`](../operations/DB_READER_SETUP.md) covers identifying the reader endpoint per RDS topology, the exact `aws ssm put-parameter` commands, the boot-log signature for a successful reader connect, the `/health` verification, expected NR segment routing after enablement, and a per-environment rollout order (dev → staging → prod1) with conservative pacing motivated by the symmetric risk of misconfiguration.
+
+**Still outstanding:** run the `aws ssm put-parameter` commands for `/boddle/dev/reservoir/DB_READER_HOST`, restart dev, confirm `/health` reports `db_reader: ok`. Then start the staging/prod1 cadence per the rollout-order table.
 
 ### 15. New Relic accounts for all LMS devs — **Done (per PIR)**
 
