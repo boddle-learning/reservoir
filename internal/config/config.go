@@ -31,6 +31,9 @@ type Config struct {
 
 	// Rate limiting configuration
 	RateLimit RateLimitConfig
+
+	// New Relic APM configuration
+	NewRelic NewRelicConfig
 }
 
 // DatabaseConfig holds PostgreSQL configuration
@@ -83,6 +86,21 @@ type RateLimitConfig struct {
 	Window          time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"10m"`
 	MaxAttempts     int           `envconfig:"RATE_LIMIT_MAX_ATTEMPTS" default:"5"`
 	LockoutDuration time.Duration `envconfig:"RATE_LIMIT_LOCKOUT_DURATION" default:"15m"`
+}
+
+// NewRelicConfig holds New Relic APM configuration. Empty LicenseKey leaves
+// the agent disabled — the service still boots, nrgin/nrpq integrations
+// become no-ops. Wired in response to PIR 2026-05-19, where the absence of
+// APM let a per-request DB write failure go unobserved for ~31 hours.
+type NewRelicConfig struct {
+	LicenseKey string `envconfig:"NEW_RELIC_LICENSE_KEY"`
+	AppName    string `envconfig:"NEW_RELIC_APP_NAME" default:"reservoir"`
+}
+
+// Enabled reports whether the agent should connect to New Relic. The
+// agent is enabled only when a license key is provided.
+func (n NewRelicConfig) Enabled() bool {
+	return n.LicenseKey != ""
 }
 
 // Load loads configuration from environment variables
