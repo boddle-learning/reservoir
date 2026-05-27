@@ -1,11 +1,12 @@
-# Claude PR review agents
+# PR review automation
 
-Two GitHub Actions workflows run [Claude Code](https://claude.ai/code) against every relevant PR. Both are **advisory** — neither blocks merge.
+Three GitHub Actions workflows run on PRs. The two Claude agents are **advisory** (don't block merge); shellcheck is a **required check** because its failures are deterministic and almost always real bugs.
 
-| Workflow | Triggers on | Purpose |
-|---|---|---|
-| [`claude-code-review.yml`](workflows/claude-code-review.yml) | every non-docs PR | Code quality: correctness, clarity, missing tests, consistency with the rest of the repo. |
-| [`claude-security-review.yml`](workflows/claude-security-review.yml) | PRs touching auth, oauth, middleware, token, ratelimit, config, database, user, server entrypoint, migrations, CloudFormation, or `go.mod`/`go.sum` | Exploitable HIGH/MEDIUM findings only. Mirrors the methodology used in [`docs/pre-release-hardening/reservoir-security-review.md`](../docs/pre-release-hardening/reservoir-security-review.md). |
+| Workflow | Triggers on | Blocks merge? | Purpose |
+|---|---|---|---|
+| [`claude-code-review.yml`](workflows/claude-code-review.yml) | every non-docs PR | No | Code quality: correctness, clarity, missing tests, consistency with the rest of the repo. |
+| [`claude-security-review.yml`](workflows/claude-security-review.yml) | PRs touching auth, oauth, middleware, token, ratelimit, config, database, user, server entrypoint, migrations, CloudFormation, or `go.mod`/`go.sum` | No | Exploitable HIGH/MEDIUM findings only. Mirrors the methodology in [`docs/pre-release-hardening/reservoir-security-review.md`](../docs/pre-release-hardening/reservoir-security-review.md). |
+| [`shellcheck.yml`](workflows/shellcheck.yml) | PRs (and pushes to `main`) that change any `*.sh` or `*.bash` file | Yes | Deterministic shell-script linting at `--severity=warning`. Complements the Claude agents — Claude looks for problems only a human could spot, shellcheck catches the bugs a linter can enumerate. |
 
 ## Setup
 
