@@ -5,7 +5,7 @@ Two GitHub Actions workflows run [Claude Code](https://claude.ai/code) against e
 | Workflow | Triggers on | Purpose |
 |---|---|---|
 | [`claude-code-review.yml`](workflows/claude-code-review.yml) | every non-docs PR | Code quality: correctness, clarity, missing tests, consistency with the rest of the repo. |
-| [`claude-security-review.yml`](workflows/claude-security-review.yml) | PRs touching auth, oauth, middleware, token, ratelimit, config, database, user, server entrypoint, migrations, CloudFormation, or `go.mod`/`go.sum` | Exploitable HIGH/MEDIUM findings only. Mirrors the methodology used in [`docs/pre-release-hardening/reservoir-security-review.md`](../docs/pre-release-hardening/reservoir-security-review.md). |
+| [`claude-security-review.yml`](workflows/claude-security-review.yml) | PRs touching auth/oauth/middleware/token/ratelimit/config/database/user, server entrypoint, migrations, CloudFormation, `go.mod`/`go.sum`, **`.github/`, `scripts/`, any `*.sh`/`*.bash`, `Dockerfile`, `Makefile`, `Jenkinsfile`** | Exploitable HIGH/MEDIUM findings only. Mirrors the methodology used in [`docs/pre-release-hardening/reservoir-security-review.md`](../docs/pre-release-hardening/reservoir-security-review.md). Reviews include workflow / supply-chain / shell-injection categories alongside the auth-focused ones. |
 
 ## Setup
 
