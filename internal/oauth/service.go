@@ -16,6 +16,7 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
+	lastLogin    user.LastLoginEnqueuer
 }
 
 // NewAuthService creates a new OAuth authentication service
@@ -24,12 +25,14 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
+	lastLogin user.LastLoginEnqueuer,
 ) *AuthService {
 	return &AuthService{
 		userRepo:     userRepo,
 		tokenService: tokenService,
 		googleSvc:    googleSvc,
 		cleverSvc:    cleverSvc,
+		lastLogin:    lastLogin,
 	}
 }
 
@@ -47,10 +50,7 @@ func (s *AuthService) AuthenticateWithGoogle(ctx context.Context, code, state st
 		return nil, "", err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""
@@ -179,9 +179,7 @@ func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, emai
 		return nil, err
 	}
 
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	boddleUID := ""
 	if usr.BoddleUID.Valid {
@@ -218,9 +216,7 @@ func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, emai
 		return nil, err
 	}
 
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	boddleUID := ""
 	if usr.BoddleUID.Valid {
@@ -256,10 +252,7 @@ func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state st
 		return nil, "", err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""
@@ -383,10 +376,7 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*
 		return nil, err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""

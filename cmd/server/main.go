@@ -69,13 +69,36 @@ func main() {
 		logger.Info("New Relic disabled (NEW_RELIC_LICENSE_KEY not set)")
 	}
 
-	// Connect to PostgreSQL
+	// Connect to PostgreSQL writer
 	db, err := database.NewPostgresDB(cfg.Database)
 	if err != nil {
-		logger.Fatal("Failed to connect to PostgreSQL", zap.Error(err))
+		logger.Fatal("Failed to connect to PostgreSQL writer", zap.Error(err))
 	}
 	defer db.Close()
-	logger.Info("Connected to PostgreSQL")
+	logger.Info("Connected to PostgreSQL writer")
+
+	// Connect to PostgreSQL reader replica (DB_READER_HOST). When the env var
+	// is absent we reuse the writer handle so no second pool is opened.
+	readerDB := db
+	if cfg.Database.HasReader() {
+		readerDB, err = database.NewPostgresReaderDB(cfg.Database)
+		if err != nil {
+			logger.Fatal("Failed to connect to PostgreSQL reader", zap.Error(err))
+		}
+		defer readerDB.Close()
+		logger.Info("Connected to PostgreSQL reader replica", zap.String("host", cfg.Database.ReaderHost))
+	}
+
+	// Fail fast if DB_HOST resolves to a reader replica or a read-only role.
+	// See PIR 2026-05-19: a reader-pointed DB_HOST silently shipped to prod
+	// and broke last_logged_on writes on every auth request for ~31 hours.
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := db.VerifyWritable(probeCtx); err != nil {
+		probeCancel()
+		logger.Fatal("Database write probe failed", zap.Error(err))
+	}
+	probeCancel()
+	logger.Info("Database write probe passed")
 
 	// Connect to Redis
 	redisClient, err := database.NewRedisClient(cfg.RedisURL)
@@ -86,7 +109,7 @@ func main() {
 	logger.Info("Connected to Redis")
 
 	// Initialize services
-	userRepo := user.NewRepository(db.DB)
+	userRepo := user.NewRepository(db.DB, readerDB.DB)
 	tokenService := token.NewService(
 		cfg.JWT.SecretKey,
 		cfg.JWT.RefreshSecretKey,
@@ -99,18 +122,29 @@ func main() {
 		cfg.RateLimit.Window,
 		cfg.RateLimit.MaxAttempts,
 		cfg.RateLimit.LockoutDuration,
+		logger,
 	)
-	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter)
+
+	// Background batcher for last_logged_on writes. Started here so the
+	// goroutine runs for the lifetime of the process and shuts down with
+	// the HTTP server.
+	lastLoginWriter := user.NewLastLoginWriter(db.DB, logger)
+
+	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter, lastLoginWriter, logger)
 
 	// Initialize OAuth services
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
 	cleverService := oauth.NewCleverService(cfg.Clever, oauthStateManager)
 
-	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService)
+	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, lastLoginWriter)
 
 	// Initialize handlers
-	authHandler := auth.NewHandler(authService)
+	var readerPinger auth.DBPinger
+	if cfg.Database.HasReader() {
+		readerPinger = readerDB
+	}
+	authHandler := auth.NewHandler(authService, db, readerPinger)
 	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService)
 
 	// Set up Gin router
@@ -195,6 +229,13 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
+
+	// Flush any queued last_logged_on writes before exit. Use a fresh
+	// 3s deadline rather than reusing the server-shutdown ctx, which
+	// has already had part of its budget consumed by srv.Shutdown above.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer flushCancel()
+	lastLoginWriter.Shutdown(flushCtx)
 
 	// Flush pending New Relic data before exit. No-op when the agent is
 	// disabled. Bounded so a network blip can't stall shutdown.

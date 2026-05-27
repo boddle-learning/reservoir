@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/boddle/reservoir/internal/token"
 	"github.com/boddle/reservoir/internal/user"
 )
@@ -16,6 +18,8 @@ type Service struct {
 	tokenService   *token.Service
 	tokenBlacklist *token.Blacklist
 	rateLimiter    RateLimiter
+	lastLogin      user.LastLoginEnqueuer
+	logger         *zap.Logger
 }
 
 // RateLimiter interface for rate limiting
@@ -31,12 +35,16 @@ func NewService(
 	tokenService *token.Service,
 	blacklist *token.Blacklist,
 	rateLimiter RateLimiter,
+	lastLogin user.LastLoginEnqueuer,
+	logger *zap.Logger,
 ) *Service {
 	return &Service{
 		userRepo:       userRepo,
 		tokenService:   tokenService,
 		tokenBlacklist: blacklist,
 		rateLimiter:    rateLimiter,
+		lastLogin:      lastLogin,
+		logger:         logger,
 	}
 }
 
@@ -62,8 +70,7 @@ func (s *Service) AuthenticateEmailPassword(ctx context.Context, email, password
 	if s.rateLimiter != nil {
 		allowed, _, lockoutRemaining, err := s.rateLimiter.CheckLoginAttempt(ctx, email, ipAddress)
 		if err != nil {
-			// Log error but don't fail login
-			fmt.Printf("rate limiter error: %v\n", err)
+			s.logger.Warn("rate limiter error", zap.Error(err))
 		} else if !allowed {
 			return nil, fmt.Errorf("too many failed attempts, locked out for %v", lockoutRemaining.Round(time.Second))
 		}
@@ -100,11 +107,8 @@ func (s *Service) AuthenticateEmailPassword(ctx context.Context, email, password
 		_ = s.rateLimiter.RecordSuccessfulAttempt(ctx, email, ipAddress)
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		// Log error but don't fail login
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	// Defer last_logged_on update off the auth hot path.
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Load meta data
 	userWithMeta, err := s.userRepo.FindWithMeta(ctx, usr.ID)
@@ -159,7 +163,8 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 		// Delete non-permanent token after use
 		if err := s.userRepo.DeleteLoginToken(ctx, loginToken.ID); err != nil {
 			// Log error but don't fail login
-			fmt.Printf("failed to delete login token: %v\n", err)
+			user.RecordAuthDBWriteError("login_token_delete")
+			s.logger.Warn("failed to delete login token", zap.Error(err))
 		}
 	}
 
@@ -175,10 +180,8 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 
 	usr := &userWithMeta.User
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	// Defer last_logged_on update off the auth hot path.
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""

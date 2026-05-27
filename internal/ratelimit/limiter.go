@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 // Limiter handles rate limiting using Redis
@@ -14,15 +15,17 @@ type Limiter struct {
 	window          time.Duration // Time window for counting attempts
 	maxAttempts     int           // Maximum attempts allowed in window
 	lockoutDuration time.Duration // How long to block after exceeding limit
+	logger          *zap.Logger
 }
 
 // NewLimiter creates a new rate limiter
-func NewLimiter(client *redis.Client, window time.Duration, maxAttempts int, lockoutDuration time.Duration) *Limiter {
+func NewLimiter(client *redis.Client, window time.Duration, maxAttempts int, lockoutDuration time.Duration, logger *zap.Logger) *Limiter {
 	return &Limiter{
 		client:          client,
 		window:          window,
 		maxAttempts:     maxAttempts,
 		lockoutDuration: lockoutDuration,
+		logger:          logger,
 	}
 }
 
@@ -67,8 +70,7 @@ func (l *Limiter) CheckLoginAttempt(ctx context.Context, email, ipAddress string
 		}
 		// Clear attempt counter
 		if err := l.client.Del(ctx, attemptKey).Err(); err != nil {
-			// Log error but don't fail
-			fmt.Printf("failed to clear attempt counter: %v\n", err)
+			l.logger.Warn("failed to clear attempt counter", zap.Error(err))
 		}
 		return false, 0, l.lockoutDuration, nil
 	}
