@@ -100,9 +100,11 @@ Checklist at [`docs/operations/POST_LAUNCH_MONITORING.md`](../operations/POST_LA
 
 **Still outstanding:** adopt on the next non-trivial deploy and add "monitoring owner assigned" to the PR merge checklist after three trial deploys.
 
-### 11. Write-path smoke test against prod Reservoir before enabling — **Open**
+### 11. Write-path smoke test against prod Reservoir before enabling — **Script + runbook ready (first run pending)**
 
-No smoke-test runbook or automation. Item 6's write probe is the in-process equivalent; item 11 is the external check executed before enabling Reservoir in the LMS auth path.
+Script at [`scripts/smoke-write-path.sh`](../../scripts/smoke-write-path.sh) and runbook at [`docs/operations/PRE_DEPLOY_SMOKE_TEST.md`](../operations/PRE_DEPLOY_SMOKE_TEST.md). The script: reads pre-test metrics + `last_logged_on`, hits `POST /auth/login`, polls for `last_logged_on` to advance within 15s (Reservoir's async writer flush interval), and asserts `reservoir_auth_db_write_errors_total` didn't increase. Pass = exit 0; fail = exit 1 with a specific symptom. Complementary to PIR #6's in-process `VerifyWritable` probe — startup probe catches reader-pointed `DB_HOST` at boot; this smoke catches anything that probe might miss plus the LMS↔Reservoir integration end-to-end.
+
+**Still outstanding:** create the dedicated smoke-test user account in each environment, provision the SSM secrets (`/boddle/${ENVIRONMENT}/reservoir-smoke/PASSWORD` + `LMS_TOKEN`), confirm an LMS endpoint exposes the current user's `last_logged_on` (or add one), and run the smoke once against the next pre-deploy.
 
 ### 12. Audit production autoscaling configuration — **Done**
 
