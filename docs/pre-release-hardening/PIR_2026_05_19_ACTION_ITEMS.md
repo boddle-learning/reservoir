@@ -82,9 +82,11 @@ Two pieces, both addressed:
 
 **Remaining operational step:** set `NEW_RELIC_LICENSE_KEY` in SSM at `/boddle/${EnvironmentName}/reservoir/NEW_RELIC_LICENSE_KEY` per environment. This is config, not code, and is out of scope for this branch. Until done, the agent runs disabled — no APM data shows up in New Relic, but the service still boots normally.
 
-### 8. Profile Reservoir CPU under realistic auth load — **Open**
+### 8. Profile Reservoir CPU under realistic auth load — **Runbook ready (profile run pending)**
 
-No profiling artifacts on the branch. Required to attribute saturation contributors (failed-write path vs. bcrypt cost vs. `fmt.Printf` contention) and to validate the PIR's root-cause narrative.
+Runbook at [`docs/operations/CPU_PROFILING.md`](../operations/CPU_PROFILING.md) covers when to run, how to expose pprof on a non-public port, how to capture CPU/heap/goroutine profiles, what to look for in the top-N (with a contributor-attribution table mapping symbols to PIR-identified causes), and where to archive results.
+
+**Still outstanding:** actually run the profiling exercise against a representative auth load and archive results under `docs/pre-release-hardening/profiles/`. The runbook calls out the dev-environment prerequisites (user table seeding, full auth-path mix in the load test).
 
 ### 9. Document and test rollback path — **Open**
 
