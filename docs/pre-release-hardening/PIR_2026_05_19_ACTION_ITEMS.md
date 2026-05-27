@@ -88,9 +88,11 @@ Runbook at [`docs/operations/CPU_PROFILING.md`](../operations/CPU_PROFILING.md) 
 
 **Still outstanding:** actually run the profiling exercise against a representative auth load and archive results under `docs/pre-release-hardening/profiles/`. The runbook calls out the dev-environment prerequisites (user table seeding, full auth-path mix in the load test).
 
-### 9. Document and test rollback path — **Open**
+### 9. Document and test rollback path — **Runbook ready (dry-run pending)**
 
-No rollback playbook on the branch. Needs ≥2 people able to execute without single-person dependency.
+Runbook at [`docs/operations/ROLLBACK.md`](../operations/ROLLBACK.md) covers: who can execute (with a quarterly access-verification check baked in), a decision tree for whether to roll back Reservoir vs the LMS vs scale out first, step-by-step Reservoir rollback (with the explicit "communicate before executing" two-executor checkpoint the PIR called for), recovery signals to watch, and a quarterly practice cadence.
+
+**Still outstanding:** identify the primary and backup executors by name and run the first quarterly practice. The runbook is structured so a stranger to the system could follow it under pressure, but it needs to actually be run end-to-end once before the next prod deploy.
 
 ### 10. Post-launch monitoring checklist — **Open**
 
