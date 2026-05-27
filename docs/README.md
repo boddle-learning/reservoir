@@ -22,10 +22,26 @@ Documentation of the Go authentication gateway architecture.
 
 ### Operations
 
+Deployment, observability, and the operational runbooks introduced in the post-incident hardening work for [PIR 2026-05-19](pre-release-hardening/PIR_2026_05_19_ACTION_ITEMS.md).
+
 - **[Deployment](DEPLOYMENT.md)** - AWS ECS / CloudFormation deployment, SSM parameters
 - **[Observability](OBSERVABILITY.md)** - New Relic APM, Prometheus metrics, structured logging
 - **[Capacity Planning](CAPACITY_PLANNING.md)** - Sizing, scaling, connection budgets
 - **[PR Review Automation](PR_REVIEW_AUTOMATION.md)** - Claude code-review and security-review agents, shellcheck CI, auth/setup, costs
+- **[CPU Profiling](operations/CPU_PROFILING.md)** - When and how to capture pprof against Reservoir under load (PIR #8)
+- **[Rollback](operations/ROLLBACK.md)** - Decision tree, two-executor protocol, recovery signals (PIR #9)
+- **[Post-Launch Monitoring](operations/POST_LAUNCH_MONITORING.md)** - Named-owner ritual for every major deploy (PIR #10)
+- **[Pre-Deploy Smoke Test](operations/PRE_DEPLOY_SMOKE_TEST.md)** - Write-path verification before flipping LMS traffic (PIR #11)
+- **[Incident Response Checklist](operations/INCIDENT_RESPONSE_CHECKLIST.md)** - During-incident playbook, including measuring user impact (PIR #13)
+- **[DB Reader Setup](operations/DB_READER_SETUP.md)** - Per-environment SSM configuration for the read replica (PIR #14)
+
+### Pre-release hardening
+
+Tracking docs for the work that preceded the production re-deploy.
+
+- **[PIR 2026-05-19 Action Items](pre-release-hardening/PIR_2026_05_19_ACTION_ITEMS.md)** - Code-side tracking against the ClickUp PIR (item status, branches, follow-ups)
+- **[Reservoir Security Review](pre-release-hardening/reservoir-security-review.md)** - 2026-05-22 whole-system security review (5 HIGH findings + IdP alternatives)
+- **[User Impact Measurement](pre-release-hardening/USER_IMPACT_MEASUREMENT.md)** - SQL/log templates for measuring incident user impact (auth-specific)
 
 ### Migration
 Documentation for transitioning from Rails to Go authentication.
