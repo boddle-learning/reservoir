@@ -19,6 +19,8 @@ import (
 	"github.com/boddle/reservoir/internal/token"
 	"github.com/boddle/reservoir/internal/user"
 	"github.com/gin-gonic/gin"
+	"github.com/newrelic/go-agent/v3/integrations/nrgin"
+	"github.com/newrelic/go-agent/v3/newrelic"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
@@ -40,6 +42,32 @@ func main() {
 	defer logger.Sync()
 
 	logger.Info("Starting Boddle Auth Gateway", zap.String("env", cfg.Env))
+
+	// Initialize New Relic. Disabled when NEW_RELIC_LICENSE_KEY is empty —
+	// nrgin middleware and nrpostgres driver remain installed but become
+	// no-ops, so dev/test boots without an account. PIR 2026-05-19 #7.
+	nrApp, err := newrelic.NewApplication(
+		newrelic.ConfigAppName(cfg.NewRelic.AppName),
+		newrelic.ConfigLicense(cfg.NewRelic.LicenseKey),
+		newrelic.ConfigEnabled(cfg.NewRelic.Enabled()),
+		newrelic.ConfigDistributedTracerEnabled(true),
+		newrelic.ConfigAppLogForwardingEnabled(false),
+	)
+	if err != nil {
+		logger.Fatal("Failed to initialize New Relic", zap.Error(err))
+	}
+	if cfg.NewRelic.Enabled() {
+		// Block until the agent connects so the first requests are captured.
+		// 10s matches the agent's default connect cadence and keeps boot
+		// from hanging if New Relic is unreachable.
+		if err := nrApp.WaitForConnection(10 * time.Second); err != nil {
+			logger.Warn("New Relic agent did not connect within deadline; continuing", zap.Error(err))
+		} else {
+			logger.Info("Connected to New Relic", zap.String("app", cfg.NewRelic.AppName))
+		}
+	} else {
+		logger.Info("New Relic disabled (NEW_RELIC_LICENSE_KEY not set)")
+	}
 
 	// Connect to PostgreSQL
 	db, err := database.NewPostgresDB(cfg.Database)
@@ -92,7 +120,11 @@ func main() {
 
 	router := gin.New()
 
-	// Global middleware
+	// Global middleware. nrgin runs first so every request becomes a
+	// New Relic transaction; downstream middleware and handlers that use
+	// c.Request.Context() (including DB calls via the nrpostgres driver)
+	// attach their work as segments to that transaction.
+	router.Use(nrgin.Middleware(nrApp))
 	allowedOrigins := middleware.ParseAllowedOrigins(cfg.CORS.AllowedOrigins)
 	router.Use(middleware.CORS(allowedOrigins))
 	router.Use(middleware.SecurityHeaders())
@@ -163,6 +195,10 @@ func main() {
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
+
+	// Flush pending New Relic data before exit. No-op when the agent is
+	// disabled. Bounded so a network blip can't stall shutdown.
+	nrApp.Shutdown(5 * time.Second)
 
 	logger.Info("Server stopped")
 }

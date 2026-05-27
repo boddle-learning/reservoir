@@ -20,6 +20,12 @@ Documentation of the Go authentication gateway architecture.
 - **[JWT Design](new-system/jwt-design.md)** - JWT token structure and validation
 - **[Security Features](new-system/security.md)** - Rate limiting, token blacklist, security measures
 
+### Operations
+
+- **[Deployment](DEPLOYMENT.md)** - AWS ECS / CloudFormation deployment, SSM parameters
+- **[Observability](OBSERVABILITY.md)** - New Relic APM, Prometheus metrics, structured logging
+- **[Capacity Planning](CAPACITY_PLANNING.md)** - Sizing, scaling, connection budgets
+
 ### Migration
 Documentation for transitioning from Rails to Go authentication.
 

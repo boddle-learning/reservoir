@@ -78,6 +78,8 @@ The ECS task receives an `SSM_PATH` environment variable set to `/boddle/${Envir
 | `ICLOUD_PRIVATE_KEY_PATH`       | Path to Apple private key file     |
 | `ICLOUD_REDIRECT_URL`           | Apple Sign In callback URL         |
 | `CORS_ALLOWED_ORIGINS`          | Comma-separated allowed origins    |
+| `NEW_RELIC_LICENSE_KEY`         | New Relic ingest key (optional — empty disables APM). See [OBSERVABILITY.md](./OBSERVABILITY.md). |
+| `NEW_RELIC_APP_NAME`            | New Relic app name (optional, default `reservoir` — override per-env, e.g. `reservoir-prod1`). |
 
 ### CI/CD Environment Variables
 
