@@ -1,13 +1,14 @@
 name: Claude security review
 
-# Triggers only on PRs that touch security-sensitive code. The path filter
-# is deliberately narrow so we don't burn API budget reviewing markdown or
-# unrelated package code. Keep this list in sync with the security review
-# methodology in docs/pre-release-hardening/reservoir-security-review.md.
+# Triggers on PRs that touch security-sensitive code, workflow files,
+# build infrastructure, or shell scripts. The filter still skips pure-docs
+# PRs to save API budget. Keep this list in sync with the categories in
+# the prompt below and with docs/pre-release-hardening/reservoir-security-review.md.
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
     paths:
+      # Auth + service surface (original list)
       - "internal/auth/**"
       - "internal/oauth/**"
       - "internal/middleware/**"
@@ -21,6 +22,17 @@ on:
       - ".cloudformation/**"
       - "go.mod"
       - "go.sum"
+      # Workflow + supply-chain + infra surfaces (expanded coverage).
+      # Added after a sweep across the open PRs found that .github/ and
+      # shell-script changes were escaping security review entirely.
+      - ".github/**"
+      - "scripts/**"
+      - "**.sh"
+      - "**.bash"
+      - "Dockerfile"
+      - "Makefile"
+      - "Jenkinsfile"
+      - "entrypoint.sh"
 
 concurrency:
   group: claude-security-review-${{ github.event.pull_request.number }}
@@ -69,6 +81,9 @@ jobs:
             10. **Logging** — passwords, JWTs, raw tokens, magic-link secrets in logs or URL query strings.
             11. **Config** — default or hardcoded secrets, secrets committed to the repo.
             12. **Migrations** — seeded admin/backdoor rows, overly broad GRANT statements.
+            13. **GitHub Actions workflows** — broad `on:` triggers on a public repo (e.g. `@claude` mention from any commenter), secrets referenced in expression syntax that gets echoed into logs, third-party actions referenced by tag rather than SHA, `pull_request_target` that checks out the PR head (RCE-on-runner risk), overly broad `permissions:` blocks.
+            14. **Container / shell scripts** — Dockerfile running as root in the final stage, secrets baked into image layers via `ENV`/`ARG`, shell scripts with unquoted variable expansion enabling word-split or glob injection, `eval` / `source` of attacker-influenceable paths, `curl | sh`-style installation in build steps.
+            15. **Build supply chain** — Makefile / Jenkinsfile invoking external binaries from non-fixed paths, version pins to floating tags (`@latest`, `@main`) where a SHA would be appropriate, untrusted scripts executed during build.
 
             **Phase 3 — False-positive verification.** For every candidate finding, re-check the exact code line. Confirm the exploit path is reachable. If you can't quote the specific line that proves the issue, do not report it.
 
