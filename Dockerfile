@@ -21,8 +21,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o reservoir ./cmd/server
 # Final stage
 FROM alpine:3.19
 
-# Install CA certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates tzdata
+# Install CA certificates for HTTPS requests; bash for /entrypoint shebang
+RUN apk --no-cache add ca-certificates tzdata bash
 
 # Create non-root user
 RUN addgroup -g 1000 reservoir && \
@@ -33,9 +33,16 @@ WORKDIR /home/reservoir
 
 # Copy binary from builder
 COPY --from=builder /app/reservoir .
+RUN mkdir -p /ssm 
+COPY --from=base2/awsenv:0.2.1 /awsenv /bin/awsenv
+COPY entrypoint.sh /entrypoint
+RUN chmod +x /entrypoint && chown reservoir:reservoir /entrypoint
+
 
 # Change ownership
 RUN chown -R reservoir:reservoir /home/reservoir
+RUN chown -R reservoir:reservoir /ssm
+
 
 # Switch to non-root user
 USER reservoir
@@ -46,6 +53,8 @@ EXPOSE 8080
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+ENTRYPOINT [ "/entrypoint" ]
 
 # Run the application
 CMD ["./reservoir"]

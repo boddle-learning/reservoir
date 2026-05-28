@@ -1,0 +1,124 @@
+name: Claude security review
+
+# Triggers on PRs that touch security-sensitive code, workflow files,
+# build infrastructure, or shell scripts. The filter still skips pure-docs
+# PRs to save API budget. Keep this list in sync with the categories in
+# the prompt below and with docs/pre-release-hardening/reservoir-security-review.md.
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      # Auth + service surface (original list)
+      - "internal/auth/**"
+      - "internal/oauth/**"
+      - "internal/middleware/**"
+      - "internal/token/**"
+      - "internal/ratelimit/**"
+      - "internal/config/**"
+      - "internal/database/**"
+      - "internal/user/**"
+      - "cmd/server/**"
+      - "migrations/**"
+      - ".cloudformation/**"
+      - "go.mod"
+      - "go.sum"
+      # Workflow + supply-chain + infra surfaces (expanded coverage).
+      # Added after a sweep across the open PRs found that .github/ and
+      # shell-script changes were escaping security review entirely.
+      - ".github/**"
+      - "scripts/**"
+      - "**.sh"
+      - "**.bash"
+      - "Dockerfile"
+      - "Makefile"
+      - "Jenkinsfile"
+      - "entrypoint.sh"
+
+concurrency:
+  group: claude-security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are performing a security review of this pull request. This is an authentication service. Treat findings the same way a human security engineer would — high signal, no manufactured concerns.
+
+            ## Methodology
+
+            Mirror the methodology used in `docs/pre-release-hardening/reservoir-security-review.md`:
+
+            **Phase 1 — Context.** Identify what the PR changes. Read `gh pr diff` and `gh pr view`. For changed handlers, services, middleware, or config, read the surrounding files with `Read` to understand the trust boundary.
+
+            **Phase 2 — Targeted analysis.** Look for concrete, exploitable issues in these categories:
+
+            1. **Routing / auth boundaries** — public vs auth-required endpoints, sensitive routes missing auth middleware, new public routes that mint tokens.
+            2. **JWT handling** — signing-key source, algorithm pinning (no `alg:none`/RS-vs-HS confusion), audience/issuer validation, expiry, refresh rotation, blacklist correctness.
+            3. **OAuth state / CSRF** — `state` validation, replay protection, PKCE, open redirect via `redirect_url`.
+            4. **External identity verification** — providers' tokens actually verified (JWKS, signature, iss/aud/exp/nonce), not just trusted from the request body.
+            5. **SQL** — string-interpolated queries, dynamic ORDER BY/LIMIT.
+            6. **Password handling** — bcrypt cost, timing equality, user enumeration via response codes, password reset flow.
+            7. **CORS / security headers** — wildcard `Access-Control-Allow-Origin` combined with `Allow-Credentials: true`, CSRF on state-changing endpoints.
+            8. **Token blacklist / logout** — refresh-token reuse after logout, missing JTI revocation paths.
+            9. **Rate limiter** — `X-Forwarded-For` spoofing (untrusted-proxy headers), email-only fallback.
+            10. **Logging** — passwords, JWTs, raw tokens, magic-link secrets in logs or URL query strings.
+            11. **Config** — default or hardcoded secrets, secrets committed to the repo.
+            12. **Migrations** — seeded admin/backdoor rows, overly broad GRANT statements.
+            13. **GitHub Actions workflows** — broad `on:` triggers on a public repo (e.g. `@claude` mention from any commenter), secrets referenced in expression syntax that gets echoed into logs, third-party actions referenced by tag rather than SHA, `pull_request_target` that checks out the PR head (RCE-on-runner risk), overly broad `permissions:` blocks.
+            14. **Container / shell scripts** — Dockerfile running as root in the final stage, secrets baked into image layers via `ENV`/`ARG`, shell scripts with unquoted variable expansion enabling word-split or glob injection, `eval` / `source` of attacker-influenceable paths, `curl | sh`-style installation in build steps.
+            15. **Build supply chain** — Makefile / Jenkinsfile invoking external binaries from non-fixed paths, version pins to floating tags (`@latest`, `@main`) where a SHA would be appropriate, untrusted scripts executed during build.
+
+            **Phase 3 — False-positive verification.** For every candidate finding, re-check the exact code line. Confirm the exploit path is reachable. If you can't quote the specific line that proves the issue, do not report it.
+
+            ## Severity and confidence
+
+            Report **HIGH** and **MEDIUM** only. For each finding output:
+
+            - File:line
+            - Severity (HIGH or MEDIUM)
+            - Category (e.g. "Authentication bypass", "Sensitive data exposure")
+            - Confidence (1–10). **Only report findings with confidence ≥ 8.**
+            - Exploit scenario (one short paragraph)
+            - Fix (one short paragraph)
+
+            ## Exclusions
+
+            Do not report:
+
+            - DOS / resource exhaustion
+            - "Lack of hardening" without a concrete exploit
+            - Theoretical race conditions
+            - Log-spoofing
+            - SSRF unless the host/protocol is attacker-controllable
+            - Outdated-dependency findings
+            - Test-only files
+            - Documentation files
+
+            ## Output format
+
+            - Use `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`) at the exact `file:line` for each finding.
+            - Use `gh pr comment` for a single summary comment listing the findings by severity, OR a single "no findings" comment if there are none. Do NOT post a long wall of text — let the inline comments carry the detail.
+            - Advisory only. This workflow does not block merge.
+
+            Do not submit review text as chat messages — every piece of feedback must land as a GitHub comment.
+
+          claude_args: |
+            --model claude-sonnet-4-6
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(grep:*),Bash(rg:*),Bash(find:*)"

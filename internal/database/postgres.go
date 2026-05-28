@@ -8,6 +8,10 @@ import (
 	"github.com/boddle/reservoir/internal/config"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq" // PostgreSQL driver
+	// nrpq registers the "nrpostgres" driver, a lib/pq wrapper that emits
+	// New Relic datastore segments for each query when a transaction is in
+	// the request context. No-op when the New Relic agent is disabled.
+	_ "github.com/newrelic/go-agent/v3/integrations/nrpq"
 )
 
 // DB wraps the sqlx database connection
@@ -15,18 +19,21 @@ type DB struct {
 	*sqlx.DB
 }
 
-// NewPostgresDB creates a new PostgreSQL database connection
+// NewPostgresDB creates a new PostgreSQL database connection.
+// Uses the "nrpostgres" driver (a lib/pq wrapper from nrpq) so each query
+// becomes a datastore segment in the surrounding New Relic transaction.
+// When the agent is disabled, the wrapper degrades to a no-op delegate.
 func NewPostgresDB(cfg config.DatabaseConfig) (*DB, error) {
 	connStr := cfg.ConnectionString()
 
-	db, err := sqlx.Connect("postgres", connStr)
+	db, err := sqlx.Connect("nrpostgres", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// Configure connection pool
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(25)
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxOpenConns / 2)
 	db.SetConnMaxLifetime(5 * time.Minute)
 	db.SetConnMaxIdleTime(10 * time.Minute)
 
@@ -49,4 +56,54 @@ func (db *DB) Close() error {
 // Health checks the database health
 func (db *DB) Health(ctx context.Context) error {
 	return db.PingContext(ctx)
+}
+
+// NewPostgresReaderDB opens a connection to the read replica configured via
+// DB_READER_HOST. All other credentials (port, user, password, dbname,
+// sslmode) are shared with the writer. The caller is responsible for closing
+// the returned DB.
+func NewPostgresReaderDB(cfg config.DatabaseConfig) (*DB, error) {
+	db, err := sqlx.Connect("postgres", cfg.ReaderConnectionString())
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to reader database: %w", err)
+	}
+
+	db.SetMaxOpenConns(cfg.ReaderMaxOpenConns)
+	db.SetMaxIdleConns(cfg.ReaderMaxOpenConns / 2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping reader database: %w", err)
+	}
+
+	return &DB{DB: db}, nil
+}
+
+// VerifyWritable confirms the connection can execute writes against the
+// users table. Run at startup so a misconfigured DB_HOST that resolves to
+// a reader replica or a read-only role fails the task before it joins the
+// ALB pool, instead of silently failing every auth request in production.
+//
+// The probe runs inside a transaction and rolls back, so it leaves no
+// residue even if the WHERE clause ever matched a real row. The
+// `id = -1` predicate is impossible (id is a positive serial), so this
+// is a zero-row UPDATE that still forces Postgres to evaluate write
+// permission and surface `cannot execute UPDATE in a read-only transaction`.
+func (db *DB) VerifyWritable(ctx context.Context) error {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin write-probe tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET last_logged_on = last_logged_on WHERE id = -1`,
+	); err != nil {
+		return fmt.Errorf("write probe failed (DB_HOST may point at a reader): %w", err)
+	}
+	return nil
 }

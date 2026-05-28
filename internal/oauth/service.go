@@ -16,6 +16,7 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
+	lastLogin    user.LastLoginEnqueuer
 }
 
 // NewAuthService creates a new OAuth authentication service
@@ -24,12 +25,14 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
+	lastLogin user.LastLoginEnqueuer,
 ) *AuthService {
 	return &AuthService{
 		userRepo:     userRepo,
 		tokenService: tokenService,
 		googleSvc:    googleSvc,
 		cleverSvc:    cleverSvc,
+		lastLogin:    lastLogin,
 	}
 }
 
@@ -47,10 +50,7 @@ func (s *AuthService) AuthenticateWithGoogle(ctx context.Context, code, state st
 		return nil, "", err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""
@@ -164,6 +164,80 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 	}
 }
 
+// AuthenticateWithGoogleToken authenticates using a pre-obtained Google access token.
+// Used when the LMS has already completed the Google OAuth flow via OmniAuth and
+// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
+func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
+	oauthUserInfo := &OAuthUserInfo{
+		ProviderUserID: uid,
+		Email:          email,
+		FirstName:      name,
+	}
+
+	usr, meta, err := s.findOrCreateGoogleUser(ctx, oauthUserInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	s.lastLogin.Enqueue(usr.ID)
+
+	boddleUID := ""
+	if usr.BoddleUID.Valid {
+		boddleUID = usr.BoddleUID.String
+	}
+
+	fullName := usr.Name
+	if m, ok := meta.(*user.Teacher); ok {
+		fullName = m.FirstName + " " + m.LastName
+	}
+
+	tokenPair, err := s.tokenService.Generate(
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return &auth.LoginResponse{Token: tokenPair, User: usr, Meta: meta}, nil
+}
+
+// AuthenticateWithCleverToken authenticates using a pre-obtained Clever access token.
+// Used when the LMS has already completed the Clever SSO flow via OmniAuth and
+// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
+func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
+	oauthUserInfo := &OAuthUserInfo{
+		ProviderUserID: uid,
+		Email:          email,
+		FirstName:      name,
+	}
+
+	usr, meta, err := s.findOrCreateCleverUser(ctx, oauthUserInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	s.lastLogin.Enqueue(usr.ID)
+
+	boddleUID := ""
+	if usr.BoddleUID.Valid {
+		boddleUID = usr.BoddleUID.String
+	}
+
+	fullName := usr.Name
+	if m, ok := meta.(*user.Teacher); ok {
+		fullName = m.FirstName + " " + m.LastName
+	}
+
+	tokenPair, err := s.tokenService.Generate(
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	return &auth.LoginResponse{Token: tokenPair, User: usr, Meta: meta}, nil
+}
+
 // AuthenticateWithClever authenticates a user with Clever SSO
 func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state string) (*auth.LoginResponse, string, error) {
 	// Handle Clever OAuth callback
@@ -178,10 +252,7 @@ func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state st
 		return nil, "", err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""
@@ -305,10 +376,7 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*
 		return nil, err
 	}
 
-	// Update last logged on
-	if err := s.userRepo.UpdateLastLoggedOn(ctx, usr.ID); err != nil {
-		fmt.Printf("failed to update last_logged_on: %v\n", err)
-	}
+	s.lastLogin.Enqueue(usr.ID)
 
 	// Generate JWT token
 	boddleUID := ""

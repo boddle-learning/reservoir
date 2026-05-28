@@ -9,14 +9,19 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository handles user data operations
+// Repository handles user data operations.
+// db is the writer (used for INSERTs, UPDATEs, DELETEs).
+// reader is the read replica (used for SELECTs). When no replica is
+// configured, reader is the same handle as db so no extra pool is opened.
 type Repository struct {
-	db *sqlx.DB
+	db     *sqlx.DB
+	reader *sqlx.DB
 }
 
-// NewRepository creates a new user repository
-func NewRepository(db *sqlx.DB) *Repository {
-	return &Repository{db: db}
+// NewRepository creates a new user repository. Pass the same handle for both
+// writer and reader when no read replica is configured.
+func NewRepository(writer, reader *sqlx.DB) *Repository {
+	return &Repository{db: writer, reader: reader}
 }
 
 // FindByEmail finds a user by email address
@@ -26,7 +31,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, erro
 			  FROM users
 			  WHERE email = $1`
 
-	err := r.db.GetContext(ctx, &user, query, email)
+	err := r.reader.GetContext(ctx, &user, query, email)
 	if err == sql.ErrNoRows {
 		return nil, nil // User not found
 	}
@@ -44,7 +49,7 @@ func (r *Repository) FindByID(ctx context.Context, id int) (*User, error) {
 			  FROM users
 			  WHERE id = $1`
 
-	err := r.db.GetContext(ctx, &user, query, id)
+	err := r.reader.GetContext(ctx, &user, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil // User not found
 	}
@@ -62,7 +67,7 @@ func (r *Repository) FindByBoddleUID(ctx context.Context, boddleUID string) (*Us
 			  FROM users
 			  WHERE boddle_uid = $1`
 
-	err := r.db.GetContext(ctx, &user, query, boddleUID)
+	err := r.reader.GetContext(ctx, &user, query, boddleUID)
 	if err == sql.ErrNoRows {
 		return nil, nil // User not found
 	}
@@ -119,7 +124,7 @@ func (r *Repository) FindTeacher(ctx context.Context, id int) (*Teacher, error) 
 			  FROM teachers
 			  WHERE id = $1`
 
-	err := r.db.GetContext(ctx, &teacher, query, id)
+	err := r.reader.GetContext(ctx, &teacher, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -137,7 +142,7 @@ func (r *Repository) FindTeacherByGoogleUID(ctx context.Context, googleUID strin
 			  FROM teachers
 			  WHERE google_uid = $1`
 
-	err := r.db.GetContext(ctx, &teacher, query, googleUID)
+	err := r.reader.GetContext(ctx, &teacher, query, googleUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -155,7 +160,7 @@ func (r *Repository) FindTeacherByCleverUID(ctx context.Context, cleverUID strin
 			  FROM teachers
 			  WHERE clever_uid = $1`
 
-	err := r.db.GetContext(ctx, &teacher, query, cleverUID)
+	err := r.reader.GetContext(ctx, &teacher, query, cleverUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -173,7 +178,7 @@ func (r *Repository) FindStudent(ctx context.Context, id int) (*Student, error) 
 			  FROM students
 			  WHERE id = $1`
 
-	err := r.db.GetContext(ctx, &student, query, id)
+	err := r.reader.GetContext(ctx, &student, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -191,7 +196,7 @@ func (r *Repository) FindStudentByGoogleUID(ctx context.Context, googleUID strin
 			  FROM students
 			  WHERE google_uid = $1`
 
-	err := r.db.GetContext(ctx, &student, query, googleUID)
+	err := r.reader.GetContext(ctx, &student, query, googleUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -209,7 +214,7 @@ func (r *Repository) FindParent(ctx context.Context, id int) (*Parent, error) {
 			  FROM parents
 			  WHERE id = $1`
 
-	err := r.db.GetContext(ctx, &parent, query, id)
+	err := r.reader.GetContext(ctx, &parent, query, id)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -228,7 +233,7 @@ func (r *Repository) FindUserByMeta(ctx context.Context, metaType string, metaID
 			  FROM users
 			  WHERE meta_type = $1 AND meta_id = $2`
 
-	err := r.db.GetContext(ctx, &user, query, metaType, metaID)
+	err := r.reader.GetContext(ctx, &user, query, metaType, metaID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -269,7 +274,7 @@ func (r *Repository) GetRecentLoginAttempts(ctx context.Context, email, ipAddres
 			  WHERE email = $1 AND ip_address = $2 AND attempted_at >= $3
 			  ORDER BY attempted_at DESC`
 
-	err := r.db.SelectContext(ctx, &attempts, query, email, ipAddress, since)
+	err := r.reader.SelectContext(ctx, &attempts, query, email, ipAddress, since)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recent login attempts: %w", err)
 	}
@@ -284,6 +289,8 @@ func (r *Repository) FindLoginToken(ctx context.Context, secret string) (*LoginT
 			  FROM login_tokens
 			  WHERE secret = $1`
 
+	// Use writer to avoid replica lag: tokens are created and consumed
+	// immediately, so a lagging replica would return nil and fail the auth.
 	err := r.db.GetContext(ctx, &token, query, secret)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -352,7 +359,7 @@ func (r *Repository) FindStudentByiCloudUID(ctx context.Context, icloudUID strin
 			  FROM students
 			  WHERE icloud_uid = $1`
 
-	err := r.db.GetContext(ctx, &student, query, icloudUID)
+	err := r.reader.GetContext(ctx, &student, query, icloudUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -370,7 +377,7 @@ func (r *Repository) FindParentByiCloudUID(ctx context.Context, icloudUID string
 			  FROM parents
 			  WHERE icloud_uid = $1`
 
-	err := r.db.GetContext(ctx, &parent, query, icloudUID)
+	err := r.reader.GetContext(ctx, &parent, query, icloudUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -388,7 +395,7 @@ func (r *Repository) FindStudentByCleverUID(ctx context.Context, cleverUID strin
 			  FROM students
 			  WHERE clever_uid = $1`
 
-	err := r.db.GetContext(ctx, &student, query, cleverUID)
+	err := r.reader.GetContext(ctx, &student, query, cleverUID)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

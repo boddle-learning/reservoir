@@ -7,7 +7,7 @@ import (
 )
 
 // VerifyPassword verifies a password against a bcrypt hash
-// This matches Rails' has_secure_password behavior (bcrypt cost factor 10)
+// Cost is read from the stored hash itself; Rails uses cost 12 (bcrypt gem default).
 func VerifyPassword(password, hash string) error {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	if err != nil {
@@ -19,10 +19,10 @@ func VerifyPassword(password, hash string) error {
 	return nil
 }
 
-// HashPassword creates a bcrypt hash of a password
-// Cost factor 10 matches Rails' default
+// HashPassword creates a bcrypt hash of a password at cost 12, matching the
+// bcrypt Ruby gem default used by Rails (has_secure_password).
 func HashPassword(password string) (string, error) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return "", fmt.Errorf("failed to hash password: %w", err)
 	}

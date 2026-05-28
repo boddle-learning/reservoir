@@ -23,6 +23,80 @@ func NewHandler(authService *AuthService, googleSvc *GoogleService, cleverSvc *C
 	}
 }
 
+// GoogleTokenAuth authenticates using a pre-obtained Google access token.
+// Called by LMS after OmniAuth has already completed the Google OAuth flow.
+// POST /auth/google { "uid": "...", "email": "...", "name": "...", "token": "..." }
+func (h *Handler) GoogleTokenAuth(c *gin.Context) {
+	var req struct {
+		UID   string `json:"uid"   binding:"required"`
+		Email string `json:"email" binding:"required"`
+		Name  string `json:"name"`
+		Token string `json:"token" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "uid, email, and token are required",
+			},
+		})
+		return
+	}
+
+	result, err := h.authService.AuthenticateWithGoogleToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "OAUTH_FAILED",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	response.Success(c, http.StatusOK, result)
+}
+
+// CleverTokenAuth authenticates using a pre-obtained Clever access token.
+// Called by LMS after OmniAuth has already completed the Clever SSO flow.
+// POST /auth/clever { "uid": "...", "email": "...", "name": "...", "token": "..." }
+func (h *Handler) CleverTokenAuth(c *gin.Context) {
+	var req struct {
+		UID   string `json:"uid"   binding:"required"`
+		Email string `json:"email" binding:"required"`
+		Name  string `json:"name"`
+		Token string `json:"token" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "INVALID_REQUEST",
+				"message": "uid, email, and token are required",
+			},
+		})
+		return
+	}
+
+	result, err := h.authService.AuthenticateWithCleverToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "OAUTH_FAILED",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	response.Success(c, http.StatusOK, result)
+}
+
 // GoogleLogin initiates Google OAuth flow
 // GET /auth/google?redirect_url=...
 func (h *Handler) GoogleLogin(c *gin.Context) {

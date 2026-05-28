@@ -1,0 +1,65 @@
+name: shellcheck
+
+# Deterministic shell-script linting. Complements the Claude code-review
+# and security-review agents — those use an LLM to look for problems
+# only a human could spot; shellcheck catches the bugs a linter can
+# enumerate (quoting, $(( )) misuse, unportable constructs, etc.).
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    paths:
+      - "**.sh"
+      - "**.bash"
+      - ".github/workflows/shellcheck.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**.sh"
+      - "**.bash"
+
+concurrency:
+  group: shellcheck-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    if: github.event.pull_request == null || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Run shellcheck
+        run: |
+          set -euo pipefail
+
+          # Find all shell scripts under version control. Exclude vendored
+          # or third-party directories if any are added later. `git ls-files`
+          # is preferred over `find` so we don't accidentally lint scripts
+          # checked out by some prior step.
+          mapfile -t scripts < <(
+            git ls-files \
+              '*.sh' '*.bash' \
+              ':!:**/vendor/**' \
+              ':!:**/node_modules/**'
+          )
+
+          if [[ ${#scripts[@]} -eq 0 ]]; then
+            echo "No shell scripts tracked in this repo. Nothing to check."
+            exit 0
+          fi
+
+          echo "Linting ${#scripts[@]} script(s):"
+          printf '  %s\n' "${scripts[@]}"
+          echo
+
+          # --severity=warning: report errors and warnings; skip info and
+          # style. Errors and warnings are usually real bugs (quoting,
+          # POSIX issues, unportable constructs). Info/style is opinion
+          # better left to human review.
+          #
+          # --color=always: force ANSI colors in the workflow log so
+          # findings are scannable in the GitHub UI.
+          shellcheck --severity=warning --color=always "${scripts[@]}"

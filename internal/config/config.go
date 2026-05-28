@@ -31,24 +31,48 @@ type Config struct {
 
 	// Rate limiting configuration
 	RateLimit RateLimitConfig
+
+	// New Relic APM configuration
+	NewRelic NewRelicConfig
 }
 
 // DatabaseConfig holds PostgreSQL configuration
 type DatabaseConfig struct {
-	Host     string `envconfig:"DB_HOST" required:"true"`
-	Port     int    `envconfig:"DB_PORT" default:"5432"`
-	User     string `envconfig:"DB_USER" required:"true"`
-	Password string `envconfig:"DB_PASSWORD" required:"true"`
-	Name     string `envconfig:"DB_NAME" required:"true"`
-	SSLMode  string `envconfig:"DB_SSL_MODE" default:"require"`
+	Host               string `envconfig:"DB_HOST" required:"true"`
+	ReaderHost         string `envconfig:"DB_READER_HOST"`                    // optional; falls back to DB_HOST when unset
+	Port               int    `envconfig:"DB_PORT" default:"5432"`
+	User               string `envconfig:"DB_USER" required:"true"`
+	Password           string `envconfig:"DB_PASSWORD" required:"true"`
+	Name               string `envconfig:"DB_NAME" required:"true"`
+	SSLMode            string `envconfig:"DB_SSL_MODE" default:"require"`
+	MaxOpenConns       int    `envconfig:"DB_MAX_OPEN_CONNS" default:"25"`        // floor(r7g.8xlarge_max_connections * 0.8 / max_tasks); override per env in SSM
+	ReaderMaxOpenConns int    `envconfig:"DB_READER_MAX_OPEN_CONNS" default:"11"` // floor(serverless_v2_min_acus_max_connections * 0.8 / max_tasks); override per env in SSM
 }
 
-// ConnectionString returns the PostgreSQL connection string
+// ConnectionString returns the writer PostgreSQL connection string.
 func (d DatabaseConfig) ConnectionString() string {
 	return fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		d.Host, d.Port, d.User, d.Password, d.Name, d.SSLMode,
 	)
+}
+
+// ReaderConnectionString returns the read-replica connection string.
+// Falls back to the writer host when DB_READER_HOST is not set.
+func (d DatabaseConfig) ReaderConnectionString() string {
+	host := d.ReaderHost
+	if host == "" {
+		host = d.Host
+	}
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		host, d.Port, d.User, d.Password, d.Name, d.SSLMode,
+	)
+}
+
+// HasReader reports whether a dedicated read-replica host is configured.
+func (d DatabaseConfig) HasReader() bool {
+	return d.ReaderHost != ""
 }
 
 // JWTConfig holds JWT token configuration
@@ -90,6 +114,21 @@ type RateLimitConfig struct {
 	// Set GlobalLoginCapacity=0 to disable.
 	GlobalLoginCapacity int     `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_CAPACITY" default:"200"`
 	GlobalLoginRefill   float64 `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC" default:"100"`
+}
+
+// NewRelicConfig holds New Relic APM configuration. Empty LicenseKey leaves
+// the agent disabled — the service still boots, nrgin/nrpq integrations
+// become no-ops. Wired in response to PIR 2026-05-19, where the absence of
+// APM let a per-request DB write failure go unobserved for ~31 hours.
+type NewRelicConfig struct {
+	LicenseKey string `envconfig:"NEW_RELIC_LICENSE_KEY"`
+	AppName    string `envconfig:"NEW_RELIC_APP_NAME" default:"reservoir"`
+}
+
+// Enabled reports whether the agent should connect to New Relic. The
+// agent is enabled only when a license key is provided.
+func (n NewRelicConfig) Enabled() bool {
+	return n.LicenseKey != ""
 }
 
 // Load loads configuration from environment variables
