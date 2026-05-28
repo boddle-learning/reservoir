@@ -19,6 +19,7 @@ Documentation of the Go authentication gateway architecture.
 - **[Go Gateway Implementation](new-system/go-gateway.md)** - Go service implementation details
 - **[JWT Design](new-system/jwt-design.md)** - JWT token structure and validation
 - **[Security Features](new-system/security.md)** - Rate limiting, token blacklist, security measures
+- **[Global Login Throttle](new-system/global-login-throttle.md)** - Thundering-herd protection via Redis token bucket
 
 ### Operations
 

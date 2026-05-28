@@ -61,6 +61,13 @@ var (
 		},
 	)
 
+	authGlobalLoginThrottleTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "auth_global_login_throttle_total",
+			Help: "Total number of logins rejected by the global login token bucket",
+		},
+	)
+
 	// Active tokens gauge
 	authActiveTokens = promauto.NewGauge(
 		prometheus.GaugeOpts{
@@ -102,6 +109,11 @@ func RecordJWTValidation(status string) {
 // RecordRateLimitHit records a rate limit hit
 func RecordRateLimitHit() {
 	authRateLimitHitsTotal.Inc()
+}
+
+// RecordGlobalLoginThrottle records a login rejected by the global token bucket
+func RecordGlobalLoginThrottle() {
+	authGlobalLoginThrottleTotal.Inc()
 }
 
 // SetActiveTokens sets the active tokens gauge
