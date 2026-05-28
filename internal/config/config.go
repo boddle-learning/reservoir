@@ -111,7 +111,8 @@ type RateLimitConfig struct {
 	// Global login throttle (token bucket shared across all instances).
 	// Caps total login throughput to protect downstream systems during
 	// thundering-herd scenarios (e.g. game server outage recovery).
-	// Set GlobalLoginCapacity=0 to disable.
+	// The throttle is disabled if either GlobalLoginCapacity <= 0 or
+	// GlobalLoginRefill <= 0.
 	GlobalLoginCapacity int     `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_CAPACITY" default:"200"`
 	GlobalLoginRefill   float64 `envconfig:"RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC" default:"100"`
 }

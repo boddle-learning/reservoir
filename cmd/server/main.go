@@ -133,15 +133,21 @@ func main() {
 	authService := auth.NewService(userRepo, tokenService, tokenBlacklist, rateLimiter, lastLoginWriter, logger)
 
 	// Global login throttle (token bucket) — protects downstream systems from
-	// thundering-herd logins after an outage. Set capacity=0 to disable.
+	// thundering-herd logins after an outage. Disabled when either capacity
+	// or refill is <= 0 (NewGlobalLimiter refuses non-positive values because
+	// the Lua script uses refill as a divisor).
 	var globalLoginLimiter middleware.GlobalLoginLimiter
 	if cfg.RateLimit.GlobalLoginCapacity > 0 && cfg.RateLimit.GlobalLoginRefill > 0 {
-		globalLoginLimiter = ratelimit.NewGlobalLimiter(
+		gl, err := ratelimit.NewGlobalLimiter(
 			redisClient.Client,
 			"ratelimit:global:login",
 			cfg.RateLimit.GlobalLoginCapacity,
 			cfg.RateLimit.GlobalLoginRefill,
 		)
+		if err != nil {
+			logger.Fatal("Failed to create global login limiter", zap.Error(err))
+		}
+		globalLoginLimiter = gl
 		logger.Info("Global login throttle enabled",
 			zap.Int("capacity", cfg.RateLimit.GlobalLoginCapacity),
 			zap.Float64("refill_per_sec", cfg.RateLimit.GlobalLoginRefill),

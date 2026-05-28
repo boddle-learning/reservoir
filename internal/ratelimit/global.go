@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,13 +25,19 @@ type GlobalLimiter struct {
 //	[1, 0]                    -> allowed
 //	[0, retryAfterMillis]     -> rejected
 //
+// Time is read from Redis itself (`redis.call('TIME')`) rather than from the
+// caller so all gateway instances share a single clock — without this, clock
+// skew between tasks can stamp a future ts and stall refill on other tasks.
+//
 // State stored in a hash: {tokens: float, ts: int64 millis}. TTL is reset each
 // call to the time needed to fully refill, so idle keys expire on their own.
 var tokenBucketScript = redis.NewScript(`
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local refill = tonumber(ARGV[2])
-local now_ms = tonumber(ARGV[3])
+
+local t = redis.call("TIME")
+local now_ms = (tonumber(t[1]) * 1000) + math.floor(tonumber(t[2]) / 1000)
 
 local data = redis.call("HMGET", key, "tokens", "ts")
 local tokens = tonumber(data[1])
@@ -62,23 +69,32 @@ redis.call("EXPIRE", key, ttl)
 return {allowed, retry_after_ms}
 `)
 
-// NewGlobalLimiter creates a new global token-bucket limiter.
-// capacity is the burst size; refillPerSecond is the steady-state rate.
-func NewGlobalLimiter(client *redis.Client, key string, capacity int, refillPerSecond float64) *GlobalLimiter {
+// ErrInvalidLimiterConfig is returned when capacity or refill rate are not
+// strictly positive. The Lua script uses refill as a divisor, so a non-positive
+// value would produce division errors or nonsensical retry-after values.
+var ErrInvalidLimiterConfig = errors.New("global limiter: capacity and refill must be > 0")
+
+// NewGlobalLimiter creates a new global token-bucket limiter. Returns
+// ErrInvalidLimiterConfig if capacity or refillPerSecond are not strictly
+// positive — callers that want the throttle disabled should branch on config
+// before constructing the limiter rather than passing zero values.
+func NewGlobalLimiter(client *redis.Client, key string, capacity int, refillPerSecond float64) (*GlobalLimiter, error) {
+	if capacity <= 0 || refillPerSecond <= 0 {
+		return nil, ErrInvalidLimiterConfig
+	}
 	return &GlobalLimiter{
 		client:   client,
 		key:      key,
 		capacity: capacity,
 		refill:   refillPerSecond,
-	}
+	}, nil
 }
 
 // Allow attempts to consume one token. If rejected, retryAfter is how long
 // the caller should wait before retrying.
 func (g *GlobalLimiter) Allow(ctx context.Context) (allowed bool, retryAfter time.Duration, err error) {
-	nowMs := time.Now().UnixMilli()
 	res, err := tokenBucketScript.Run(ctx, g.client, []string{g.key},
-		g.capacity, g.refill, nowMs,
+		g.capacity, g.refill,
 	).Int64Slice()
 	if err != nil {
 		return false, 0, fmt.Errorf("token bucket script failed: %w", err)

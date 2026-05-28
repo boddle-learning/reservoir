@@ -40,12 +40,12 @@ Environment variables (see [`internal/config/config.go`](../../internal/config/c
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RATE_LIMIT_GLOBAL_LOGIN_CAPACITY` | `200` | Bucket size — maximum burst allowed. Set to `0` to disable. |
-| `RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC` | `100` | Steady-state refill rate (tokens/second). |
+| `RATE_LIMIT_GLOBAL_LOGIN_CAPACITY` | `200` | Bucket size — maximum burst allowed. Values `<= 0` disable the throttle. |
+| `RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC` | `100` | Steady-state refill rate (tokens/second). Values `<= 0` disable the throttle. |
 
 **Defaults are placeholders.** Tune based on what the downstream PostgreSQL connection pool and any services you proxy to can actually sustain. A reasonable starting point is capacity ≈ 2× refill, so the bucket can absorb a brief 2-second burst before steady-state throttling kicks in.
 
-Set `RATE_LIMIT_GLOBAL_LOGIN_CAPACITY=0` to disable the throttle entirely.
+The throttle is enabled only when **both** `RATE_LIMIT_GLOBAL_LOGIN_CAPACITY > 0` and `RATE_LIMIT_GLOBAL_LOGIN_REFILL_PER_SEC > 0`. Setting either to `0` (or any negative value) disables it entirely.
 
 ## Integration
 
