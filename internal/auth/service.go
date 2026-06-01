@@ -129,6 +129,7 @@ func (s *Service) AuthenticateEmailPassword(ctx context.Context, email, password
 		userWithMeta.GetFullName(),
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -196,6 +197,7 @@ func (s *Service) AuthenticateLoginToken(ctx context.Context, secret string) (*L
 		userWithMeta.GetFullName(),
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -229,18 +231,30 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*token
 	return claims, nil
 }
 
-// Logout revokes a token by adding it to the blacklist
+// Logout revokes the caller's sessions. It bumps the user's token_version,
+// which invalidates every outstanding refresh token for that user (closing the
+// 30-day stolen-refresh-token window — Finding 2 / LMS-6513), and blacklists
+// the presented access token's JTI so it dies immediately too.
+//
+// The access token's signature is verified but an expired token is tolerated:
+// a user clicking Log Out after their access token expired must still be able
+// to revoke. A token that fails signature verification is treated as an
+// already-invalid session and logout succeeds as a no-op.
 func (s *Service) Logout(ctx context.Context, tokenString string) error {
-	// Extract token ID and expiry
-	claims, err := s.tokenService.Validate(tokenString)
+	claims, err := s.tokenService.ValidateAllowExpired(tokenString)
 	if err != nil {
-		// If token is already invalid, logout succeeds
+		// Signature invalid / unparseable — nothing to revoke.
 		return nil
 	}
 
-	// Add to blacklist with TTL = token expiry
-	expiry := claims.ExpiresAt.Time
-	if err := s.tokenBlacklist.Add(ctx, claims.ID, expiry); err != nil {
+	// Revoke all refresh tokens for this user (logout-everywhere).
+	if _, err := s.userRepo.IncrementTokenVersion(ctx, claims.UserID); err != nil {
+		return fmt.Errorf("failed to revoke sessions: %w", err)
+	}
+
+	// Also blacklist the presented access token so it can't be used until it
+	// would have expired. Add() is a no-op when the token is already expired.
+	if err := s.tokenBlacklist.Add(ctx, claims.ID, claims.ExpiresAt.Time); err != nil {
 		return fmt.Errorf("failed to blacklist token: %w", err)
 	}
 
@@ -286,6 +300,13 @@ func (s *Service) RefreshToken(ctx context.Context, refreshTokenString string) (
 
 	usr := &userWithMeta.User
 
+	// Reject refresh tokens minted before the user's last logout. The token
+	// embeds the token_version it was issued under; a logout bumps the column,
+	// so a stale version means the session was revoked (Finding 2 / LMS-6513).
+	if claims.TokenVersion != usr.TokenVersion {
+		return nil, fmt.Errorf("refresh token revoked")
+	}
+
 	// Blacklist the old refresh token so it can't be reused
 	if err := s.tokenBlacklist.Add(ctx, claims.ID, claims.ExpiresAt.Time); err != nil {
 		return nil, fmt.Errorf("failed to blacklist old refresh token: %w", err)
@@ -304,6 +325,7 @@ func (s *Service) RefreshToken(ctx context.Context, refreshTokenString string) (
 		userWithMeta.GetFullName(),
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)

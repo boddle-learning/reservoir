@@ -15,6 +15,7 @@ type User struct {
 	MetaType       string         `db:"meta_type" json:"meta_type"`
 	MetaID         int            `db:"meta_id" json:"meta_id"`
 	LastLoggedOn   sql.NullTime   `db:"last_logged_on" json:"last_logged_on,omitempty"`
+	TokenVersion   int            `db:"token_version" json:"-"`
 	CreatedAt      time.Time      `db:"created_at" json:"created_at"`
 	UpdatedAt      time.Time      `db:"updated_at" json:"updated_at"`
 }
