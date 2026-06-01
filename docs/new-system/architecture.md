@@ -628,7 +628,7 @@ func (s *OAuthService) HandleGoogleCallback(code, state string) (*User, string, 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/auth/token` | Authenticate with login token |
+| POST | `/auth/token` | Authenticate with login token (secret in Authorization header or JSON body) |
 
 ### Internal Endpoints
 
