@@ -84,6 +84,10 @@ func (l *Limiter) CheckLoginAttempt(ctx context.Context, email, ipAddress string
 	// First pass: honor any active lockout. Continued attempts while locked out
 	// slide the lockout window forward, so an attacker who keeps hammering can't
 	// simply wait out the cooldown and resume (Finding 4 / LMS-6515).
+	// First pass: honor any active lockout. Continued attempts slide every
+	// locked dimension forward so an attacker can't let the email backstop
+	// decay by hammering from a per-IP-locked address (Finding 4 / LMS-6515).
+	var activeLockout bool
 	for _, d := range dims {
 		ttl, err := l.client.TTL(ctx, d.lockoutKey).Result()
 		if err != nil && err != redis.Nil {
@@ -93,9 +97,13 @@ func (l *Limiter) CheckLoginAttempt(ctx context.Context, email, ipAddress string
 			if err := l.client.Set(ctx, d.lockoutKey, "1", l.lockoutDuration).Err(); err != nil {
 				l.logger.Warn("failed to extend lockout window", zap.Error(err))
 			}
-			return false, 0, l.lockoutDuration, nil
+			activeLockout = true
 		}
 	}
+	if activeLockout {
+		return false, 0, l.lockoutDuration, nil
+	}
+
 
 	// Second pass: evaluate attempt counters. If any dimension is at its limit,
 	// open a lockout for that dimension.
