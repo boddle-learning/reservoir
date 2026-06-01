@@ -25,6 +25,7 @@ type Config struct {
 	// OAuth configuration
 	Google GoogleConfig
 	Clever CleverConfig
+	ICloud ICloudConfig
 
 	// CORS configuration
 	CORS CORSConfig
@@ -95,6 +96,15 @@ type CleverConfig struct {
 	ClientID     string `envconfig:"CLEVER_CLIENT_ID" required:"true"`
 	ClientSecret string `envconfig:"CLEVER_CLIENT_SECRET" required:"true"`
 	RedirectURL  string `envconfig:"CLEVER_REDIRECT_URL" required:"true"`
+}
+
+// ICloudConfig holds Apple "Sign in with Apple" (iCloud) configuration.
+type ICloudConfig struct {
+	// ClientIDs is the comma-separated allowlist of Apple client IDs (the iOS
+	// app bundle ID and/or web service ID) that an ID token's aud must match.
+	// Empty leaves POST /auth/icloud failing closed: it cannot verify a token's
+	// audience, so it rejects every request. Set this in production.
+	ClientIDs string `envconfig:"APPLE_CLIENT_IDS"`
 }
 
 // CORSConfig holds CORS configuration

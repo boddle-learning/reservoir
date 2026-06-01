@@ -16,6 +16,7 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
+	icloudSvc    *ICloudService
 	lastLogin    user.LastLoginEnqueuer
 }
 
@@ -25,6 +26,7 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
+	icloudSvc *ICloudService,
 	lastLogin user.LastLoginEnqueuer,
 ) *AuthService {
 	return &AuthService{
@@ -32,6 +34,7 @@ func NewAuthService(
 		tokenService: tokenService,
 		googleSvc:    googleSvc,
 		cleverSvc:    cleverSvc,
+		icloudSvc:    icloudSvc,
 		lastLogin:    lastLogin,
 	}
 }
@@ -366,12 +369,20 @@ func (s *AuthService) findOrCreateCleverUser(ctx context.Context, info *OAuthUse
 	}
 }
 
-// AuthenticateWithiCloud authenticates a user with an Apple UID provided by the client.
-// The client handles Sign in with Apple directly and passes the UID to the server.
-// No server-side token verification is performed (matches LMS behavior).
-func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*auth.LoginResponse, error) {
-	// Find user by iCloud UID
-	usr, meta, err := s.findOrCreateiCloudUser(ctx, &OAuthUserInfo{ProviderUserID: uid})
+// AuthenticateWithiCloud authenticates a user from an Apple "Sign in with Apple"
+// ID token. The client completes Sign in with Apple and sends the resulting ID
+// token; Reservoir verifies its signature (Apple JWKS), issuer, audience, expiry
+// and a server-issued single-use nonce before trusting the `sub` claim. The
+// Apple UID is therefore taken only from a verified token, never asserted by the
+// caller. See LMS-6512 / security review Finding 1.
+func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, idToken string) (*auth.LoginResponse, error) {
+	info, err := s.icloudSvc.VerifyIDToken(ctx, idToken)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find user by the verified iCloud UID
+	usr, meta, err := s.findOrCreateiCloudUser(ctx, info)
 	if err != nil {
 		return nil, err
 	}
