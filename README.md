@@ -73,9 +73,10 @@ Boddle Reservoir is a production-ready, high-performance authentication gateway 
 
 #### 🛡️ Rate Limiting
 - Redis-backed rate limiter for high performance
-- Configurable attempt limits (default: 5 per 10 minutes)
-- Automatic lockout mechanism (default: 15 minutes)
-- IP-based and email-based tracking
+- Per-(IP, email) bucket (default: 5 per 10 minutes, 15-minute lockout)
+- Per-email backstop (default: 20 per hour) that survives source-IP rotation
+- Continued attempts during a lockout slide the window forward
+- `X-Forwarded-For` honored only from trusted proxies (`TRUSTED_PROXIES`); spoofed values are ignored
 - Granular control per endpoint
 
 #### 🔐 Token Management

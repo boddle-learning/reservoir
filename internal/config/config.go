@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -12,6 +13,16 @@ type Config struct {
 	// Server configuration
 	Port string `envconfig:"PORT" default:"8080"`
 	Env  string `envconfig:"ENV" default:"development"`
+
+	// TrustedProxies is a comma-separated list of proxy IPs/CIDRs (the ALB)
+	// that Gin should trust when deriving the client IP from X-Forwarded-For.
+	// EMPTY MEANS TRUST NONE: c.ClientIP() then returns the direct peer and a
+	// client-supplied X-Forwarded-For is ignored. Leaving it empty is the safe
+	// default — it prevents the rate-limit bypass in Finding 4 / LMS-6515,
+	// though behind an ALB it collapses all clients to the ALB's IP (the
+	// email-keyed limiter still distinguishes accounts). Set it to the ALB's
+	// CIDR(s) in production to recover true per-client IPs.
+	TrustedProxies string `envconfig:"TRUSTED_PROXIES"`
 
 	// Database configuration
 	Database DatabaseConfig
@@ -120,11 +131,21 @@ type CORSConfig struct {
 	AllowedOrigins string `envconfig:"CORS_ALLOWED_ORIGINS" default:"*"`
 }
 
-// RateLimitConfig holds rate limiting configuration
+// RateLimitConfig holds rate limiting configuration.
+//
+// Two dimensions are tracked per login: a tight per-(ip,email) bucket and a
+// wider per-email backstop. The email backstop is what defends against an
+// attacker rotating source IPs (e.g. via X-Forwarded-For) to brute-force a
+// single account — see Finding 4 / LMS-6515.
 type RateLimitConfig struct {
 	Window          time.Duration `envconfig:"RATE_LIMIT_WINDOW" default:"10m"`
 	MaxAttempts     int           `envconfig:"RATE_LIMIT_MAX_ATTEMPTS" default:"5"`
 	LockoutDuration time.Duration `envconfig:"RATE_LIMIT_LOCKOUT_DURATION" default:"15m"`
+
+	// Email-only backstop: wider window and a higher threshold (a single user
+	// may legitimately fumble a password across devices/networks).
+	EmailWindow      time.Duration `envconfig:"RATE_LIMIT_EMAIL_WINDOW" default:"1h"`
+	EmailMaxAttempts int           `envconfig:"RATE_LIMIT_EMAIL_MAX_ATTEMPTS" default:"20"`
 }
 
 // NewRelicConfig holds New Relic APM configuration. Empty LicenseKey leaves
@@ -159,4 +180,17 @@ func (c *Config) IsDevelopment() bool {
 // IsProduction returns true if running in production environment
 func (c *Config) IsProduction() bool {
 	return c.Env == "production"
+}
+
+// TrustedProxyList parses TRUSTED_PROXIES into trimmed, non-empty entries.
+// An empty result is passed to router.SetTrustedProxies as nil, which makes
+// Gin trust no proxies and ignore client-supplied X-Forwarded-For headers.
+func (c *Config) TrustedProxyList() []string {
+	var out []string
+	for _, p := range strings.Split(c.TrustedProxies, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

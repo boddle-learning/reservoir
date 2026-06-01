@@ -122,6 +122,8 @@ func main() {
 		cfg.RateLimit.Window,
 		cfg.RateLimit.MaxAttempts,
 		cfg.RateLimit.LockoutDuration,
+		cfg.RateLimit.EmailWindow,
+		cfg.RateLimit.EmailMaxAttempts,
 		logger,
 	)
 
@@ -159,6 +161,20 @@ func main() {
 	}
 
 	router := gin.New()
+
+	// Configure trusted proxies so c.ClientIP() can't be spoofed via a
+	// client-supplied X-Forwarded-For (the rate-limit bypass in Finding 4 /
+	// LMS-6515). An empty TRUSTED_PROXIES yields nil here, which makes Gin
+	// trust no proxy and use the direct peer address.
+	trustedProxies := cfg.TrustedProxyList()
+	if err := router.SetTrustedProxies(trustedProxies); err != nil {
+		logger.Fatal("Failed to set trusted proxies", zap.Error(err))
+	}
+	if len(trustedProxies) == 0 {
+		logger.Info("No trusted proxies configured; ignoring X-Forwarded-For (client IP = direct peer)")
+	} else {
+		logger.Info("Trusted proxies configured", zap.Strings("proxies", trustedProxies))
+	}
 
 	// Global middleware. nrgin runs first so every request becomes a
 	// New Relic transaction; downstream middleware and handlers that use
