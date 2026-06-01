@@ -6,16 +6,25 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/boddle/reservoir/internal/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
+// googleUserInfoURL is Google's OAuth2 userinfo endpoint. A request bearing a
+// Google access token returns the identity that token was issued for; an
+// invalid/expired token yields a non-200. This is what lets us treat the
+// response as ground truth instead of trusting caller-supplied identity.
+const googleUserInfoURL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
 // GoogleService handles Google OAuth2 authentication
 type GoogleService struct {
 	config       *oauth2.Config
 	stateManager *StateManager
+	userInfoURL  string
+	httpClient   *http.Client
 }
 
 // NewGoogleService creates a new Google OAuth service
@@ -34,6 +43,8 @@ func NewGoogleService(cfg config.GoogleConfig, stateManager *StateManager) *Goog
 	return &GoogleService{
 		config:       oauthConfig,
 		stateManager: stateManager,
+		userInfoURL:  googleUserInfoURL,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -83,7 +94,7 @@ func (gs *GoogleService) fetchUserInfo(ctx context.Context, accessToken string) 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://www.googleapis.com/oauth2/v2/userinfo",
+		gs.userInfoURL,
 		nil,
 	)
 	if err != nil {
@@ -92,8 +103,7 @@ func (gs *GoogleService) fetchUserInfo(ctx context.Context, accessToken string) 
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := gs.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user info: %w", err)
 	}

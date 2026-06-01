@@ -25,12 +25,13 @@ func NewHandler(authService *AuthService, googleSvc *GoogleService, cleverSvc *C
 
 // GoogleTokenAuth authenticates using a pre-obtained Google access token.
 // Called by LMS after OmniAuth has already completed the Google OAuth flow.
-// POST /auth/google { "uid": "...", "email": "...", "name": "...", "token": "..." }
+// POST /auth/google { "token": "..." }
+//
+// Only the access token is trusted: Reservoir verifies it with Google and
+// derives the identity from Google's response. Any uid/email/name in the body
+// is ignored (see LMS-6511), so they are no longer required or read here.
 func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 	var req struct {
-		UID   string `json:"uid"   binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Name  string `json:"name"`
 		Token string `json:"token" binding:"required"`
 	}
 
@@ -39,13 +40,13 @@ func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "uid, email, and token are required",
+				"message": "token is required",
 			},
 		})
 		return
 	}
 
-	result, err := h.authService.AuthenticateWithGoogleToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	result, err := h.authService.AuthenticateWithGoogleToken(c.Request.Context(), req.Token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
@@ -62,12 +63,13 @@ func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 
 // CleverTokenAuth authenticates using a pre-obtained Clever access token.
 // Called by LMS after OmniAuth has already completed the Clever SSO flow.
-// POST /auth/clever { "uid": "...", "email": "...", "name": "...", "token": "..." }
+// POST /auth/clever { "token": "..." }
+//
+// Only the access token is trusted: Reservoir verifies it with Clever and
+// derives the identity from Clever's response. Any uid/email/name in the body
+// is ignored (see LMS-6511), so they are no longer required or read here.
 func (h *Handler) CleverTokenAuth(c *gin.Context) {
 	var req struct {
-		UID   string `json:"uid"   binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Name  string `json:"name"`
 		Token string `json:"token" binding:"required"`
 	}
 
@@ -76,13 +78,13 @@ func (h *Handler) CleverTokenAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "uid, email, and token are required",
+				"message": "token is required",
 			},
 		})
 		return
 	}
 
-	result, err := h.authService.AuthenticateWithCleverToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	result, err := h.authService.AuthenticateWithCleverToken(c.Request.Context(), req.Token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,

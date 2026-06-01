@@ -6,15 +6,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/boddle/reservoir/internal/config"
 	"golang.org/x/oauth2"
 )
 
+// cleverUserInfoURL is Clever's identity endpoint. A request bearing a Clever
+// access token returns the identity that token was issued for; an
+// invalid/expired token yields a non-200. This is what lets us treat the
+// response as ground truth instead of trusting caller-supplied identity.
+const cleverUserInfoURL = "https://api.clever.com/v3.0/me"
+
 // CleverService handles Clever SSO authentication
 type CleverService struct {
 	config       *oauth2.Config
 	stateManager *StateManager
+	userInfoURL  string
+	httpClient   *http.Client
 }
 
 // NewCleverService creates a new Clever SSO service
@@ -33,6 +42,8 @@ func NewCleverService(cfg config.CleverConfig, stateManager *StateManager) *Clev
 	return &CleverService{
 		config:       oauthConfig,
 		stateManager: stateManager,
+		userInfoURL:  cleverUserInfoURL,
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -82,7 +93,7 @@ func (cs *CleverService) fetchUserInfo(ctx context.Context, accessToken string) 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://api.clever.com/v3.0/me",
+		cs.userInfoURL,
 		nil,
 	)
 	if err != nil {
@@ -91,8 +102,7 @@ func (cs *CleverService) fetchUserInfo(ctx context.Context, accessToken string) 
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := cs.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user info: %w", err)
 	}
