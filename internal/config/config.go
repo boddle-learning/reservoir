@@ -88,6 +88,14 @@ type GoogleConfig struct {
 	ClientID     string `envconfig:"GOOGLE_CLIENT_ID" required:"true"`
 	ClientSecret string `envconfig:"GOOGLE_CLIENT_SECRET" required:"true"`
 	RedirectURL  string `envconfig:"GOOGLE_REDIRECT_URL" required:"true"`
+
+	// TokenAudiences is the comma-separated allowlist of Google OAuth client
+	// IDs that may present access tokens to POST /auth/google (i.e. the LMS's
+	// own OmniAuth client ID(s), which differ from ClientID above). When set,
+	// the token's aud/azp is verified against this list via Google's tokeninfo
+	// endpoint, preventing a confused-deputy replay of a token minted for an
+	// unrelated OAuth app. Empty disables the check. See LMS-6511 follow-up.
+	TokenAudiences string `envconfig:"GOOGLE_TOKEN_AUDIENCES"`
 }
 
 // CleverConfig holds Clever SSO configuration

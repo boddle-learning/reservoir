@@ -412,6 +412,10 @@ JWT_REFRESH_TOKEN_TTL=720h
 GOOGLE_CLIENT_ID=<client-id>.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=<secret>
 GOOGLE_REDIRECT_URL=https://auth.example.com/auth/google/callback
+# Allowlist of client IDs permitted to call POST /auth/google (the LMS's
+# OmniAuth client ID(s)). When set, access-token audience is verified against
+# Google's tokeninfo to block confused-deputy replay; empty disables the check.
+GOOGLE_TOKEN_AUDIENCES=<lms-client-id>.apps.googleusercontent.com
 
 # Clever SSO
 CLEVER_CLIENT_ID=<client-id>

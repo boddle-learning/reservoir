@@ -166,12 +166,24 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 
 // AuthenticateWithGoogleToken authenticates using a pre-obtained Google access token.
 // Used when the LMS has already completed the Google OAuth flow via OmniAuth and
-// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
-func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
-	oauthUserInfo := &OAuthUserInfo{
-		ProviderUserID: uid,
-		Email:          email,
-		FirstName:      name,
+// passes the resulting access token to Reservoir for JWT issuance.
+//
+// The access token is verified directly against Google: the identity (uid,
+// email, name) is taken from Google's userinfo response, never from the caller.
+// A caller can therefore only mint a JWT for an identity it holds a valid
+// Google token for — it cannot assert an arbitrary uid/email. See LMS-6511 /
+// security review Finding 0.
+func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, accessToken string) (*auth.LoginResponse, error) {
+	// Reject tokens minted for an OAuth app other than the LMS (no-op unless
+	// GOOGLE_TOKEN_AUDIENCES is configured). Guards against confused-deputy
+	// replay, since userinfo below does not check audience.
+	if err := s.googleSvc.verifyTokenAudience(ctx, accessToken); err != nil {
+		return nil, fmt.Errorf("failed to verify Google access token: %w", err)
+	}
+
+	oauthUserInfo, err := s.googleSvc.fetchUserInfo(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify Google access token: %w", err)
 	}
 
 	usr, meta, err := s.findOrCreateGoogleUser(ctx, oauthUserInfo)
@@ -203,12 +215,17 @@ func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, emai
 
 // AuthenticateWithCleverToken authenticates using a pre-obtained Clever access token.
 // Used when the LMS has already completed the Clever SSO flow via OmniAuth and
-// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
-func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
-	oauthUserInfo := &OAuthUserInfo{
-		ProviderUserID: uid,
-		Email:          email,
-		FirstName:      name,
+// passes the resulting access token to Reservoir for JWT issuance.
+//
+// The access token is verified directly against Clever: the identity (uid,
+// email, name) is taken from Clever's /me response, never from the caller.
+// A caller can therefore only mint a JWT for an identity it holds a valid
+// Clever token for — it cannot assert an arbitrary uid/email. See LMS-6511 /
+// security review Finding 0.
+func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, accessToken string) (*auth.LoginResponse, error) {
+	oauthUserInfo, err := s.cleverSvc.fetchUserInfo(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify Clever access token: %w", err)
 	}
 
 	usr, meta, err := s.findOrCreateCleverUser(ctx, oauthUserInfo)
