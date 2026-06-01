@@ -27,7 +27,7 @@ func NewRepository(writer, reader *sqlx.DB) *Repository {
 // FindByEmail finds a user by email address
 func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, error) {
 	var user User
-	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, token_version, created_at, updated_at
 			  FROM users
 			  WHERE email = $1`
 
@@ -45,7 +45,7 @@ func (r *Repository) FindByEmail(ctx context.Context, email string) (*User, erro
 // FindByID finds a user by ID
 func (r *Repository) FindByID(ctx context.Context, id int) (*User, error) {
 	var user User
-	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, token_version, created_at, updated_at
 			  FROM users
 			  WHERE id = $1`
 
@@ -63,7 +63,7 @@ func (r *Repository) FindByID(ctx context.Context, id int) (*User, error) {
 // FindByBoddleUID finds a user by Boddle UID
 func (r *Repository) FindByBoddleUID(ctx context.Context, boddleUID string) (*User, error) {
 	var user User
-	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, token_version, created_at, updated_at
 			  FROM users
 			  WHERE boddle_uid = $1`
 
@@ -229,7 +229,7 @@ func (r *Repository) FindParent(ctx context.Context, id int) (*Parent, error) {
 // This is the reverse lookup since meta tables don't have a user_id column.
 func (r *Repository) FindUserByMeta(ctx context.Context, metaType string, metaID int) (*User, error) {
 	var user User
-	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, created_at, updated_at
+	query := `SELECT id, name, email, password_digest, boddle_uid, meta_type, meta_id, last_logged_on, token_version, created_at, updated_at
 			  FROM users
 			  WHERE meta_type = $1 AND meta_id = $2`
 
@@ -252,6 +252,18 @@ func (r *Repository) UpdateLastLoggedOn(ctx context.Context, userID int) error {
 		return fmt.Errorf("failed to update last logged on: %w", err)
 	}
 	return nil
+}
+
+// IncrementTokenVersion bumps a user's token_version and returns the new value.
+// All previously-issued tokens embed the prior version, so this revokes every
+// outstanding access/refresh token for the user at once (logout-everywhere).
+func (r *Repository) IncrementTokenVersion(ctx context.Context, userID int) (int, error) {
+	query := `UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version`
+	var newVersion int
+	if err := r.db.GetContext(ctx, &newVersion, query, userID); err != nil {
+		return 0, fmt.Errorf("failed to increment token version: %w", err)
+	}
+	return newVersion, nil
 }
 
 // RecordLoginAttempt records a login attempt for rate limiting

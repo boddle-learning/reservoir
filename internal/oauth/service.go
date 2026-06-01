@@ -70,6 +70,7 @@ func (s *AuthService) AuthenticateWithGoogle(ctx context.Context, code, state st
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
@@ -192,7 +193,7 @@ func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, emai
 	}
 
 	tokenPair, err := s.tokenService.Generate(
-		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID, usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -229,7 +230,7 @@ func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, emai
 	}
 
 	tokenPair, err := s.tokenService.Generate(
-		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID, usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -272,6 +273,7 @@ func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state st
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
@@ -396,6 +398,7 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)

@@ -85,6 +85,7 @@ Boddle Reservoir is a production-ready, high-performance authentication gateway 
 - **Token Blacklist**: Redis-backed revocation system
 - **Token Rotation**: Automatic refresh token rotation
 - **JTI Tracking**: Unique token identifiers for audit trails
+- **Logout-everywhere**: per-user `token_version` claim; logout bumps it and invalidates all outstanding refresh tokens
 
 #### 🔒 Security Headers
 - XSS protection headers
