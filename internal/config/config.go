@@ -36,6 +36,7 @@ type Config struct {
 	// OAuth configuration
 	Google GoogleConfig
 	Clever CleverConfig
+	ICloud ICloudConfig
 
 	// CORS configuration
 	CORS CORSConfig
@@ -99,6 +100,14 @@ type GoogleConfig struct {
 	ClientID     string `envconfig:"GOOGLE_CLIENT_ID" required:"true"`
 	ClientSecret string `envconfig:"GOOGLE_CLIENT_SECRET" required:"true"`
 	RedirectURL  string `envconfig:"GOOGLE_REDIRECT_URL" required:"true"`
+
+	// TokenAudiences is the comma-separated allowlist of Google OAuth client
+	// IDs that may present access tokens to POST /auth/google (i.e. the LMS's
+	// own OmniAuth client ID(s), which differ from ClientID above). When set,
+	// the token's aud/azp is verified against this list via Google's tokeninfo
+	// endpoint, preventing a confused-deputy replay of a token minted for an
+	// unrelated OAuth app. Empty disables the check. See LMS-6511 follow-up.
+	TokenAudiences string `envconfig:"GOOGLE_TOKEN_AUDIENCES"`
 }
 
 // CleverConfig holds Clever SSO configuration
@@ -106,6 +115,15 @@ type CleverConfig struct {
 	ClientID     string `envconfig:"CLEVER_CLIENT_ID" required:"true"`
 	ClientSecret string `envconfig:"CLEVER_CLIENT_SECRET" required:"true"`
 	RedirectURL  string `envconfig:"CLEVER_REDIRECT_URL" required:"true"`
+}
+
+// ICloudConfig holds Apple "Sign in with Apple" (iCloud) configuration.
+type ICloudConfig struct {
+	// ClientIDs is the comma-separated allowlist of Apple client IDs (the iOS
+	// app bundle ID and/or web service ID) that an ID token's aud must match.
+	// Empty leaves POST /auth/icloud failing closed: it cannot verify a token's
+	// audience, so it rejects every request. Set this in production.
+	ClientIDs string `envconfig:"APPLE_CLIENT_IDS"`
 }
 
 // CORSConfig holds CORS configuration

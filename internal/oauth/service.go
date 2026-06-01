@@ -16,6 +16,7 @@ type AuthService struct {
 	tokenService *token.Service
 	googleSvc    *GoogleService
 	cleverSvc    *CleverService
+	icloudSvc    *ICloudService
 	lastLogin    user.LastLoginEnqueuer
 }
 
@@ -25,6 +26,7 @@ func NewAuthService(
 	tokenService *token.Service,
 	googleSvc *GoogleService,
 	cleverSvc *CleverService,
+	icloudSvc *ICloudService,
 	lastLogin user.LastLoginEnqueuer,
 ) *AuthService {
 	return &AuthService{
@@ -32,6 +34,7 @@ func NewAuthService(
 		tokenService: tokenService,
 		googleSvc:    googleSvc,
 		cleverSvc:    cleverSvc,
+		icloudSvc:    icloudSvc,
 		lastLogin:    lastLogin,
 	}
 }
@@ -70,6 +73,7 @@ func (s *AuthService) AuthenticateWithGoogle(ctx context.Context, code, state st
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
@@ -166,12 +170,24 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 
 // AuthenticateWithGoogleToken authenticates using a pre-obtained Google access token.
 // Used when the LMS has already completed the Google OAuth flow via OmniAuth and
-// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
-func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
-	oauthUserInfo := &OAuthUserInfo{
-		ProviderUserID: uid,
-		Email:          email,
-		FirstName:      name,
+// passes the resulting access token to Reservoir for JWT issuance.
+//
+// The access token is verified directly against Google: the identity (uid,
+// email, name) is taken from Google's userinfo response, never from the caller.
+// A caller can therefore only mint a JWT for an identity it holds a valid
+// Google token for — it cannot assert an arbitrary uid/email. See LMS-6511 /
+// security review Finding 0.
+func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, accessToken string) (*auth.LoginResponse, error) {
+	// Reject tokens minted for an OAuth app other than the LMS (no-op unless
+	// GOOGLE_TOKEN_AUDIENCES is configured). Guards against confused-deputy
+	// replay, since userinfo below does not check audience.
+	if err := s.googleSvc.verifyTokenAudience(ctx, accessToken); err != nil {
+		return nil, fmt.Errorf("failed to verify Google access token: %w", err)
+	}
+
+	oauthUserInfo, err := s.googleSvc.fetchUserInfo(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify Google access token: %w", err)
 	}
 
 	usr, meta, err := s.findOrCreateGoogleUser(ctx, oauthUserInfo)
@@ -192,7 +208,7 @@ func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, emai
 	}
 
 	tokenPair, err := s.tokenService.Generate(
-		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID, usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -203,12 +219,17 @@ func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, uid, emai
 
 // AuthenticateWithCleverToken authenticates using a pre-obtained Clever access token.
 // Used when the LMS has already completed the Clever SSO flow via OmniAuth and
-// passes the resulting uid/email/name/token to Reservoir for JWT issuance.
-func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, email, name, accessToken string) (*auth.LoginResponse, error) {
-	oauthUserInfo := &OAuthUserInfo{
-		ProviderUserID: uid,
-		Email:          email,
-		FirstName:      name,
+// passes the resulting access token to Reservoir for JWT issuance.
+//
+// The access token is verified directly against Clever: the identity (uid,
+// email, name) is taken from Clever's /me response, never from the caller.
+// A caller can therefore only mint a JWT for an identity it holds a valid
+// Clever token for — it cannot assert an arbitrary uid/email. See LMS-6511 /
+// security review Finding 0.
+func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, accessToken string) (*auth.LoginResponse, error) {
+	oauthUserInfo, err := s.cleverSvc.fetchUserInfo(ctx, accessToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify Clever access token: %w", err)
 	}
 
 	usr, meta, err := s.findOrCreateCleverUser(ctx, oauthUserInfo)
@@ -229,7 +250,7 @@ func (s *AuthService) AuthenticateWithCleverToken(ctx context.Context, uid, emai
 	}
 
 	tokenPair, err := s.tokenService.Generate(
-		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID,
+		usr.ID, boddleUID, usr.Email, fullName, usr.MetaType, usr.MetaID, usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -272,6 +293,7 @@ func (s *AuthService) AuthenticateWithClever(ctx context.Context, code, state st
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to generate token: %w", err)
@@ -366,12 +388,20 @@ func (s *AuthService) findOrCreateCleverUser(ctx context.Context, info *OAuthUse
 	}
 }
 
-// AuthenticateWithiCloud authenticates a user with an Apple UID provided by the client.
-// The client handles Sign in with Apple directly and passes the UID to the server.
-// No server-side token verification is performed (matches LMS behavior).
-func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*auth.LoginResponse, error) {
-	// Find user by iCloud UID
-	usr, meta, err := s.findOrCreateiCloudUser(ctx, &OAuthUserInfo{ProviderUserID: uid})
+// AuthenticateWithiCloud authenticates a user from an Apple "Sign in with Apple"
+// ID token. The client completes Sign in with Apple and sends the resulting ID
+// token; Reservoir verifies its signature (Apple JWKS), issuer, audience, expiry
+// and a server-issued single-use nonce before trusting the `sub` claim. The
+// Apple UID is therefore taken only from a verified token, never asserted by the
+// caller. See LMS-6512 / security review Finding 1.
+func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, idToken string) (*auth.LoginResponse, error) {
+	info, err := s.icloudSvc.VerifyIDToken(ctx, idToken)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find user by the verified iCloud UID
+	usr, meta, err := s.findOrCreateiCloudUser(ctx, info)
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +426,7 @@ func (s *AuthService) AuthenticateWithiCloud(ctx context.Context, uid string) (*
 		fullName,
 		usr.MetaType,
 		usr.MetaID,
+		usr.TokenVersion,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)

@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestICloudAuth_MissingUID(t *testing.T) {
+func TestICloudAuth_MissingIdentityToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	handler := &Handler{
@@ -26,12 +26,18 @@ func TestICloudAuth_MissingUID(t *testing.T) {
 			body: `{}`,
 		},
 		{
-			name: "empty uid",
-			body: `{"uid": ""}`,
+			name: "empty identity_token",
+			body: `{"identity_token": ""}`,
 		},
 		{
-			name: "missing uid field",
+			name: "missing identity_token field",
 			body: `{"foo": "bar"}`,
+		},
+		{
+			// The pre-LMS-6512 attack shape: a bare uid must no longer be
+			// accepted, since identity_token is now required.
+			name: "legacy uid only",
+			body: `{"uid": "victim-apple-sub"}`,
 		},
 	}
 

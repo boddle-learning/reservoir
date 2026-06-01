@@ -20,6 +20,7 @@ func TestService_Generate(t *testing.T) {
 		"Test User",
 		"Teacher",
 		10,
+		1, // tokenVersion
 	)
 
 	if err != nil {
@@ -70,6 +71,7 @@ func TestService_Validate(t *testing.T) {
 		"Test User",
 		"Teacher",
 		10,
+		1, // tokenVersion
 	)
 	if err != nil {
 		t.Fatalf("Generate() failed: %v", err)
@@ -154,6 +156,7 @@ func TestService_ValidateWrongSecret(t *testing.T) {
 		"Test User",
 		"Teacher",
 		10,
+		1, // tokenVersion
 	)
 	if err != nil {
 		t.Fatalf("Generate() failed: %v", err)
@@ -189,6 +192,7 @@ func TestService_ExtractTokenID(t *testing.T) {
 		"Test User",
 		"Teacher",
 		10,
+		1, // tokenVersion
 	)
 	if err != nil {
 		t.Fatalf("Generate() failed: %v", err)

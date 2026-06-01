@@ -138,8 +138,14 @@ func main() {
 	oauthStateManager := oauth.NewStateManager(redisClient.Client)
 	googleService := oauth.NewGoogleService(cfg.Google, oauthStateManager)
 	cleverService := oauth.NewCleverService(cfg.Clever, oauthStateManager)
+	icloudService := oauth.NewICloudService(cfg.ICloud, redisClient.Client)
+	if !icloudService.Configured() {
+		// Fail closed: /auth/icloud rejects every request until APPLE_CLIENT_IDS
+		// is set, since without an audience allowlist a token cannot be verified.
+		logger.Warn("iCloud sign-in disabled: APPLE_CLIENT_IDS not set")
+	}
 
-	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, lastLoginWriter)
+	oauthAuthService := oauth.NewAuthService(userRepo, tokenService, googleService, cleverService, icloudService, lastLoginWriter)
 
 	// Initialize handlers
 	var readerPinger auth.DBPinger
@@ -147,7 +153,7 @@ func main() {
 		readerPinger = readerDB
 	}
 	authHandler := auth.NewHandler(authService, db, readerPinger)
-	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService)
+	oauthHandler := oauth.NewHandler(oauthAuthService, googleService, cleverService, icloudService)
 
 	// Set up Gin router
 	if cfg.IsProduction() {
@@ -191,7 +197,7 @@ func main() {
 	{
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/refresh", authHandler.Refresh)
-		authGroup.GET("/token", authHandler.LoginWithToken)
+		authGroup.POST("/token", authHandler.LoginWithToken)
 		authGroup.POST("/logout", authHandler.Logout)
 
 		// OAuth token routes: LMS passes pre-obtained OmniAuth tokens for JWT issuance
@@ -204,7 +210,9 @@ func main() {
 		authGroup.GET("/clever", oauthHandler.CleverLogin)
 		authGroup.GET("/clever/callback", oauthHandler.CleverCallback)
 
-		// iCloud route — client sends Apple UID directly, no server-side OAuth flow
+		// iCloud routes — client completes Sign in with Apple and sends the
+		// resulting ID token; the server issues a nonce and verifies the token.
+		authGroup.POST("/icloud/nonce", oauthHandler.ICloudNonce)
 		authGroup.POST("/icloud", oauthHandler.ICloudAuth)
 
 		// Protected routes (require authentication)

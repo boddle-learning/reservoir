@@ -12,25 +12,28 @@ type Handler struct {
 	authService *AuthService
 	googleSvc   *GoogleService
 	cleverSvc   *CleverService
+	icloudSvc   *ICloudService
 }
 
 // NewHandler creates a new OAuth handler
-func NewHandler(authService *AuthService, googleSvc *GoogleService, cleverSvc *CleverService) *Handler {
+func NewHandler(authService *AuthService, googleSvc *GoogleService, cleverSvc *CleverService, icloudSvc *ICloudService) *Handler {
 	return &Handler{
 		authService: authService,
 		googleSvc:   googleSvc,
 		cleverSvc:   cleverSvc,
+		icloudSvc:   icloudSvc,
 	}
 }
 
 // GoogleTokenAuth authenticates using a pre-obtained Google access token.
 // Called by LMS after OmniAuth has already completed the Google OAuth flow.
-// POST /auth/google { "uid": "...", "email": "...", "name": "...", "token": "..." }
+// POST /auth/google { "token": "..." }
+//
+// Only the access token is trusted: Reservoir verifies it with Google and
+// derives the identity from Google's response. Any uid/email/name in the body
+// is ignored (see LMS-6511), so they are no longer required or read here.
 func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 	var req struct {
-		UID   string `json:"uid"   binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Name  string `json:"name"`
 		Token string `json:"token" binding:"required"`
 	}
 
@@ -39,13 +42,13 @@ func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "uid, email, and token are required",
+				"message": "token is required",
 			},
 		})
 		return
 	}
 
-	result, err := h.authService.AuthenticateWithGoogleToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	result, err := h.authService.AuthenticateWithGoogleToken(c.Request.Context(), req.Token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
@@ -62,12 +65,13 @@ func (h *Handler) GoogleTokenAuth(c *gin.Context) {
 
 // CleverTokenAuth authenticates using a pre-obtained Clever access token.
 // Called by LMS after OmniAuth has already completed the Clever SSO flow.
-// POST /auth/clever { "uid": "...", "email": "...", "name": "...", "token": "..." }
+// POST /auth/clever { "token": "..." }
+//
+// Only the access token is trusted: Reservoir verifies it with Clever and
+// derives the identity from Clever's response. Any uid/email/name in the body
+// is ignored (see LMS-6511), so they are no longer required or read here.
 func (h *Handler) CleverTokenAuth(c *gin.Context) {
 	var req struct {
-		UID   string `json:"uid"   binding:"required"`
-		Email string `json:"email" binding:"required"`
-		Name  string `json:"name"`
 		Token string `json:"token" binding:"required"`
 	}
 
@@ -76,13 +80,13 @@ func (h *Handler) CleverTokenAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "uid, email, and token are required",
+				"message": "token is required",
 			},
 		})
 		return
 	}
 
-	result, err := h.authService.AuthenticateWithCleverToken(c.Request.Context(), req.UID, req.Email, req.Name, req.Token)
+	result, err := h.authService.AuthenticateWithCleverToken(c.Request.Context(), req.Token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,
@@ -214,12 +218,45 @@ func (h *Handler) CleverCallback(c *gin.Context) {
 	})
 }
 
-// ICloudAuth authenticates a user with an Apple UID provided by the client.
-// The client handles Sign in with Apple directly and passes the UID.
-// POST /auth/icloud { "uid": "apple-user-id" }
+// ICloudNonce issues a single-use nonce for Sign in with Apple. The client
+// requests it, feeds it into the Apple authorization request, and the resulting
+// ID token carries it back as the `nonce` claim — which ICloudAuth verifies.
+// POST /auth/icloud/nonce -> { "nonce": "..." }
+func (h *Handler) ICloudNonce(c *gin.Context) {
+	if !h.icloudSvc.Configured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "OAUTH_UNAVAILABLE",
+				"message": "iCloud sign-in is not configured",
+			},
+		})
+		return
+	}
+
+	nonce, err := h.icloudSvc.IssueNonce(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "NONCE_FAILED",
+				"message": "failed to issue nonce",
+			},
+		})
+		return
+	}
+
+	response.Success(c, http.StatusOK, gin.H{"nonce": nonce})
+}
+
+// ICloudAuth authenticates a user from an Apple "Sign in with Apple" ID token.
+// The client completes Sign in with Apple (using a nonce from ICloudNonce) and
+// sends the resulting ID token. The server verifies it before issuing a JWT;
+// the caller can no longer assert a bare Apple UID (see LMS-6512).
+// POST /auth/icloud { "identity_token": "<apple-id-token>" }
 func (h *Handler) ICloudAuth(c *gin.Context) {
 	var req struct {
-		UID string `json:"uid" binding:"required"`
+		IdentityToken string `json:"identity_token" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -227,14 +264,14 @@ func (h *Handler) ICloudAuth(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "INVALID_REQUEST",
-				"message": "Invalid request body",
+				"message": "identity_token is required",
 				"details": err.Error(),
 			},
 		})
 		return
 	}
 
-	result, err := h.authService.AuthenticateWithiCloud(c.Request.Context(), req.UID)
+	result, err := h.authService.AuthenticateWithiCloud(c.Request.Context(), req.IdentityToken)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"success": false,

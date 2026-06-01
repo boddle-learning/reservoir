@@ -6,16 +6,34 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"github.com/boddle/reservoir/internal/config"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
 
+// googleUserInfoURL is Google's OAuth2 userinfo endpoint. A request bearing a
+// Google access token returns the identity that token was issued for; an
+// invalid/expired token yields a non-200. This is what lets us treat the
+// response as ground truth instead of trusting caller-supplied identity.
+const googleUserInfoURL = "https://www.googleapis.com/oauth2/v2/userinfo"
+
+// googleTokenInfoURL is Google's tokeninfo endpoint. Given an access token it
+// returns the token's metadata — including aud/azp, the OAuth client the token
+// was issued to — which lets us reject tokens minted for an unrelated app.
+const googleTokenInfoURL = "https://oauth2.googleapis.com/tokeninfo"
+
 // GoogleService handles Google OAuth2 authentication
 type GoogleService struct {
-	config       *oauth2.Config
-	stateManager *StateManager
+	config           *oauth2.Config
+	stateManager     *StateManager
+	userInfoURL      string
+	tokenInfoURL     string
+	allowedAudiences []string
+	httpClient       *http.Client
 }
 
 // NewGoogleService creates a new Google OAuth service
@@ -32,9 +50,70 @@ func NewGoogleService(cfg config.GoogleConfig, stateManager *StateManager) *Goog
 	}
 
 	return &GoogleService{
-		config:       oauthConfig,
-		stateManager: stateManager,
+		config:           oauthConfig,
+		stateManager:     stateManager,
+		userInfoURL:      googleUserInfoURL,
+		tokenInfoURL:     googleTokenInfoURL,
+		allowedAudiences: parseAudiences(cfg.TokenAudiences),
+		httpClient:       &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// parseAudiences splits a comma-separated audience allowlist into trimmed,
+// non-empty entries.
+func parseAudiences(raw string) []string {
+	var out []string
+	for _, a := range strings.Split(raw, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// verifyTokenAudience confirms a Google access token was issued to one of the
+// configured client IDs (the LMS's OmniAuth app). It defends against a
+// confused-deputy replay: without it, a valid Google token minted for any
+// unrelated OAuth app could be exchanged for a Reservoir JWT, since the
+// userinfo endpoint does not check audience.
+//
+// No-op when no audiences are configured (GOOGLE_TOKEN_AUDIENCES unset).
+func (gs *GoogleService) verifyTokenAudience(ctx context.Context, accessToken string) error {
+	if len(gs.allowedAudiences) == 0 {
+		return nil
+	}
+
+	endpoint := gs.tokenInfoURL + "?access_token=" + url.QueryEscape(accessToken)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := gs.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call tokeninfo: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("tokeninfo returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var info struct {
+		Aud string `json:"aud"`
+		Azp string `json:"azp"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return fmt.Errorf("failed to decode tokeninfo: %w", err)
+	}
+
+	for _, allowed := range gs.allowedAudiences {
+		if info.Aud == allowed || info.Azp == allowed {
+			return nil
+		}
+	}
+	return fmt.Errorf("access token audience %q not in allowlist", info.Aud)
 }
 
 // GetAuthURL generates the Google OAuth authorization URL
@@ -83,7 +162,7 @@ func (gs *GoogleService) fetchUserInfo(ctx context.Context, accessToken string) 
 	req, err := http.NewRequestWithContext(
 		ctx,
 		"GET",
-		"https://www.googleapis.com/oauth2/v2/userinfo",
+		gs.userInfoURL,
 		nil,
 	)
 	if err != nil {
@@ -92,8 +171,7 @@ func (gs *GoogleService) fetchUserInfo(ctx context.Context, accessToken string) 
 
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := gs.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch user info: %w", err)
 	}

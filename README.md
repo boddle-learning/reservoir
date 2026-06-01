@@ -86,6 +86,7 @@ Boddle Reservoir is a production-ready, high-performance authentication gateway 
 - **Token Blacklist**: Redis-backed revocation system
 - **Token Rotation**: Automatic refresh token rotation
 - **JTI Tracking**: Unique token identifiers for audit trails
+- **Logout-everywhere**: per-user `token_version` claim; logout bumps it and invalidates all outstanding refresh tokens
 
 #### 🔒 Security Headers
 - XSS protection headers
@@ -280,14 +281,28 @@ GET /auth/google?redirect_url=/dashboard HTTP/1.1
 GET /auth/clever?redirect_url=/dashboard HTTP/1.1
 # Returns: 307 Redirect to Clever
 
-# iCloud Sign In
-GET /auth/icloud?redirect_url=/dashboard HTTP/1.1
-# Returns: 307 Redirect to Apple
+# iCloud Sign In (client completes Sign in with Apple, server verifies the ID token)
+POST /auth/icloud/nonce HTTP/1.1
+# Returns: { "nonce": "..." } — feed into the Apple authorization request
+
+POST /auth/icloud HTTP/1.1
+Content-Type: application/json
+{ "identity_token": "<apple-id-token>" }
+# Server verifies signature (Apple JWKS), iss, aud, exp, and the nonce, then issues a JWT
 ```
 
 #### Login Token (Magic Link)
+The secret is sent in the `Authorization` header (or a JSON body), never the
+query string, so it can't leak via access logs, browser history, or Referer.
 ```http
-GET /auth/token?token=SECRET_TOKEN HTTP/1.1
+POST /auth/token HTTP/1.1
+Authorization: Bearer SECRET_TOKEN
+```
+```http
+POST /auth/token HTTP/1.1
+Content-Type: application/json
+
+{ "token": "SECRET_TOKEN" }
 ```
 
 #### Logout (Token Revocation)
@@ -413,18 +428,22 @@ JWT_REFRESH_TOKEN_TTL=720h
 GOOGLE_CLIENT_ID=<client-id>.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=<secret>
 GOOGLE_REDIRECT_URL=https://auth.example.com/auth/google/callback
+# Allowlist of client IDs permitted to call POST /auth/google (the LMS's
+# OmniAuth client ID(s)). When set, access-token audience is verified against
+# Google's tokeninfo to block confused-deputy replay; empty disables the check.
+GOOGLE_TOKEN_AUDIENCES=<lms-client-id>.apps.googleusercontent.com
 
 # Clever SSO
 CLEVER_CLIENT_ID=<client-id>
 CLEVER_CLIENT_SECRET=<secret>
 CLEVER_REDIRECT_URL=https://auth.example.com/auth/clever/callback
 
-# Apple Sign In (iCloud)
-ICLOUD_SERVICE_ID=com.example.auth
-ICLOUD_TEAM_ID=<team-id>
-ICLOUD_KEY_ID=<key-id>
-ICLOUD_PRIVATE_KEY_PATH=/secrets/AuthKey_<key-id>.p8
-ICLOUD_REDIRECT_URL=https://auth.example.com/auth/icloud/callback
+# Apple "Sign in with Apple" (iCloud). The client completes Sign in with Apple
+# and POSTs the resulting ID token to /auth/icloud; the server verifies it
+# against Apple's JWKS. APPLE_CLIENT_IDS is the comma-separated allowlist of
+# Apple client IDs (iOS bundle ID and/or web service ID) the token's audience
+# must match. Empty disables iCloud sign-in (fails closed).
+APPLE_CLIENT_IDS=com.example.app,com.example.web
 ```
 
 ### Security Configuration

@@ -6,7 +6,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Claims represents the JWT claims structure
+// Claims represents the JWT access-token claims structure
 type Claims struct {
 	UserID    int    `json:"user_id"`
 	BoddleUID string `json:"boddle_uid"`
@@ -14,6 +14,17 @@ type Claims struct {
 	Name      string `json:"name"`
 	MetaType  string `json:"meta_type"` // "Student", "Teacher", "Parent", "Admin"
 	MetaID    int    `json:"meta_id"`
+	// TokenVersion mirrors users.token_version at issue time. Logout bumps the
+	// column, after which tokens carrying the old version are rejected. See
+	// security review Finding 2 / LMS-6513.
+	TokenVersion int `json:"tver"`
+	jwt.RegisteredClaims
+}
+
+// RefreshClaims represents the JWT refresh-token claims. It carries the same
+// TokenVersion so a refresh is rejected once the user's version is bumped.
+type RefreshClaims struct {
+	TokenVersion int `json:"tver"`
 	jwt.RegisteredClaims
 }
 

@@ -150,7 +150,7 @@ A high-performance authentication gateway in Go that:
 - Database-backed token storage
 
 **Endpoint:**
-- `GET /auth/token?token=SECRET` - Login token authentication
+- `POST /auth/token` - Login token authentication (secret in Authorization header or JSON body)
 
 ### ✅ Phase 7: Rails Integration & Migration
 **Duration:** 2 weeks
@@ -247,7 +247,7 @@ A high-performance authentication gateway in Go that:
 - `GET /health` - Health check
 - `GET /metrics` - Prometheus metrics
 - `POST /auth/login` - Email/password login
-- `GET /auth/token?token=SECRET` - Login token authentication
+- `POST /auth/token` - Login token authentication (secret in Authorization header or JSON body)
 - `GET /auth/google?redirect_url=...` - Initiate Google OAuth
 - `GET /auth/google/callback` - Google OAuth callback
 - `GET /auth/clever?redirect_url=...` - Initiate Clever SSO
