@@ -174,6 +174,13 @@ func (s *AuthService) findOrCreateGoogleUser(ctx context.Context, info *OAuthUse
 // Google token for — it cannot assert an arbitrary uid/email. See LMS-6511 /
 // security review Finding 0.
 func (s *AuthService) AuthenticateWithGoogleToken(ctx context.Context, accessToken string) (*auth.LoginResponse, error) {
+	// Reject tokens minted for an OAuth app other than the LMS (no-op unless
+	// GOOGLE_TOKEN_AUDIENCES is configured). Guards against confused-deputy
+	// replay, since userinfo below does not check audience.
+	if err := s.googleSvc.verifyTokenAudience(ctx, accessToken); err != nil {
+		return nil, fmt.Errorf("failed to verify Google access token: %w", err)
+	}
+
 	oauthUserInfo, err := s.googleSvc.fetchUserInfo(ctx, accessToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify Google access token: %w", err)

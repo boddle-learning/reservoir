@@ -118,6 +118,87 @@ func TestCleverFetchUserInfo_RejectsInvalidToken(t *testing.T) {
 	}
 }
 
+// TestVerifyTokenAudience covers the confused-deputy guard: when an audience
+// allowlist is configured, only tokens whose aud/azp match are accepted; when
+// it is empty the check is skipped entirely.
+func TestVerifyTokenAudience(t *testing.T) {
+	newServer := func(status int, aud, azp string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("access_token") == "" {
+				t.Error("tokeninfo called without access_token query param")
+			}
+			if status != http.StatusOK {
+				w.WriteHeader(status)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"aud": aud, "azp": azp})
+		}))
+	}
+
+	t.Run("no allowlist skips check", func(t *testing.T) {
+		// httpClient is nil to prove no HTTP call is made when unconfigured.
+		gs := &GoogleService{httpClient: nil, allowedAudiences: nil}
+		if err := gs.verifyTokenAudience(context.Background(), "any-token"); err != nil {
+			t.Errorf("expected nil error when no audiences configured, got %v", err)
+		}
+	})
+
+	t.Run("matching aud passes", func(t *testing.T) {
+		srv := newServer(http.StatusOK, "lms-client-id", "lms-client-id")
+		defer srv.Close()
+		gs := &GoogleService{tokenInfoURL: srv.URL, httpClient: srv.Client(), allowedAudiences: []string{"lms-client-id"}}
+		if err := gs.verifyTokenAudience(context.Background(), "tok"); err != nil {
+			t.Errorf("expected nil error for matching audience, got %v", err)
+		}
+	})
+
+	t.Run("matching azp passes", func(t *testing.T) {
+		srv := newServer(http.StatusOK, "other-aud", "lms-client-id")
+		defer srv.Close()
+		gs := &GoogleService{tokenInfoURL: srv.URL, httpClient: srv.Client(), allowedAudiences: []string{"lms-client-id"}}
+		if err := gs.verifyTokenAudience(context.Background(), "tok"); err != nil {
+			t.Errorf("expected nil error for matching azp, got %v", err)
+		}
+	})
+
+	t.Run("foreign audience rejected", func(t *testing.T) {
+		srv := newServer(http.StatusOK, "attacker-app-id", "attacker-app-id")
+		defer srv.Close()
+		gs := &GoogleService{tokenInfoURL: srv.URL, httpClient: srv.Client(), allowedAudiences: []string{"lms-client-id"}}
+		if err := gs.verifyTokenAudience(context.Background(), "tok"); err == nil {
+			t.Error("expected error for token issued to a foreign OAuth app, got nil")
+		}
+	})
+
+	t.Run("tokeninfo error rejected", func(t *testing.T) {
+		srv := newServer(http.StatusUnauthorized, "", "")
+		defer srv.Close()
+		gs := &GoogleService{tokenInfoURL: srv.URL, httpClient: srv.Client(), allowedAudiences: []string{"lms-client-id"}}
+		if err := gs.verifyTokenAudience(context.Background(), "tok"); err == nil {
+			t.Error("expected error when tokeninfo returns non-200, got nil")
+		}
+	})
+}
+
+func TestParseAudiences(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{"", 0},
+		{"  ", 0},
+		{"a", 1},
+		{"a,b", 2},
+		{" a , , b ,", 2},
+	}
+	for _, tt := range tests {
+		if got := len(parseAudiences(tt.in)); got != tt.want {
+			t.Errorf("parseAudiences(%q) len = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
 // TestTokenAuth_RequiresToken verifies the handlers reject requests with no
 // access token before reaching the service. Previously these endpoints
 // required uid/email and would accept attacker-supplied identity; now the
