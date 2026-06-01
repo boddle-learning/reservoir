@@ -279,9 +279,14 @@ GET /auth/google?redirect_url=/dashboard HTTP/1.1
 GET /auth/clever?redirect_url=/dashboard HTTP/1.1
 # Returns: 307 Redirect to Clever
 
-# iCloud Sign In
-GET /auth/icloud?redirect_url=/dashboard HTTP/1.1
-# Returns: 307 Redirect to Apple
+# iCloud Sign In (client completes Sign in with Apple, server verifies the ID token)
+POST /auth/icloud/nonce HTTP/1.1
+# Returns: { "nonce": "..." } — feed into the Apple authorization request
+
+POST /auth/icloud HTTP/1.1
+Content-Type: application/json
+{ "identity_token": "<apple-id-token>" }
+# Server verifies signature (Apple JWKS), iss, aud, exp, and the nonce, then issues a JWT
 ```
 
 #### Login Token (Magic Link)
@@ -422,12 +427,12 @@ CLEVER_CLIENT_ID=<client-id>
 CLEVER_CLIENT_SECRET=<secret>
 CLEVER_REDIRECT_URL=https://auth.example.com/auth/clever/callback
 
-# Apple Sign In (iCloud)
-ICLOUD_SERVICE_ID=com.example.auth
-ICLOUD_TEAM_ID=<team-id>
-ICLOUD_KEY_ID=<key-id>
-ICLOUD_PRIVATE_KEY_PATH=/secrets/AuthKey_<key-id>.p8
-ICLOUD_REDIRECT_URL=https://auth.example.com/auth/icloud/callback
+# Apple "Sign in with Apple" (iCloud). The client completes Sign in with Apple
+# and POSTs the resulting ID token to /auth/icloud; the server verifies it
+# against Apple's JWKS. APPLE_CLIENT_IDS is the comma-separated allowlist of
+# Apple client IDs (iOS bundle ID and/or web service ID) the token's audience
+# must match. Empty disables iCloud sign-in (fails closed).
+APPLE_CLIENT_IDS=com.example.app,com.example.web
 ```
 
 ### Security Configuration

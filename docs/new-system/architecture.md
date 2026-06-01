@@ -621,8 +621,8 @@ func (s *OAuthService) HandleGoogleCallback(code, state string) (*User, string, 
 | GET | `/auth/google/callback` | Google OAuth callback |
 | GET | `/auth/clever` | Initiate Clever SSO |
 | GET | `/auth/clever/callback` | Clever SSO callback |
-| GET | `/auth/icloud` | Initiate iCloud Sign In |
-| POST | `/auth/icloud/callback` | iCloud callback |
+| POST | `/auth/icloud/nonce` | Issue a single-use nonce for Sign in with Apple |
+| POST | `/auth/icloud` | Verify an Apple ID token and issue a JWT |
 
 ### Login Token Endpoints
 
@@ -683,12 +683,9 @@ CLEVER_CLIENT_ID=<client-id>
 CLEVER_CLIENT_SECRET=<secret>
 CLEVER_REDIRECT_URL=https://auth.boddle.com/auth/clever/callback
 
-# iCloud Sign In
-ICLOUD_SERVICE_ID=com.boddle.auth
-ICLOUD_TEAM_ID=<team-id>
-ICLOUD_KEY_ID=<key-id>
-ICLOUD_PRIVATE_KEY_PATH=/secrets/icloud_private_key.p8
-ICLOUD_REDIRECT_URL=https://auth.boddle.com/auth/icloud/callback
+# Sign in with Apple (iCloud): client-side flow, server verifies the ID token.
+# Comma-separated allowlist of Apple client IDs the token's aud must match.
+APPLE_CLIENT_IDS=com.boddle.app,com.boddle.web
 
 # Rate Limiting
 RATE_LIMIT_LOGIN_MAX_ATTEMPTS=5
