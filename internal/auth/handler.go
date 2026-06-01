@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/boddle/reservoir/internal/token"
@@ -58,12 +59,15 @@ func (h *Handler) Login(c *gin.Context) {
 	response.Success(c, http.StatusOK, result)
 }
 
-// LoginWithToken handles login token authentication (magic links)
-// GET /auth/token?token=SECRET
+// LoginWithToken handles login token authentication (magic links).
+// POST /auth/token — the secret is read from the Authorization header
+// ("Bearer <secret>") or a JSON body {"token":"<secret>"}, never the query
+// string, which would leak the credential into access logs, browser history,
+// and Referer headers (security review Finding 3 / LMS-6514).
 func (h *Handler) LoginWithToken(c *gin.Context) {
-	secret := c.Query("token")
+	secret := extractLoginTokenSecret(c)
 	if secret == "" {
-		response.ValidationError(c, "token parameter is required")
+		response.ValidationError(c, "login token is required (send it as 'Authorization: Bearer <token>' or a JSON body {\"token\":\"...\"})")
 		return
 	}
 
@@ -81,6 +85,24 @@ func (h *Handler) LoginWithToken(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, result)
+}
+
+// extractLoginTokenSecret reads the magic-link secret from the Authorization
+// header ("Bearer <secret>"), falling back to a JSON body {"token":"..."}.
+// It deliberately does not read the query string. Returns "" when absent.
+func extractLoginTokenSecret(c *gin.Context) string {
+	if authHeader := c.GetHeader("Authorization"); len(authHeader) > 7 &&
+		strings.EqualFold(authHeader[:7], "Bearer ") {
+		return strings.TrimSpace(authHeader[7:])
+	}
+
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := c.ShouldBindJSON(&body); err == nil {
+		return strings.TrimSpace(body.Token)
+	}
+	return ""
 }
 
 // Logout handles logout (token revocation)

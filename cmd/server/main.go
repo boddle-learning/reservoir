@@ -181,7 +181,7 @@ func main() {
 	{
 		authGroup.POST("/login", authHandler.Login)
 		authGroup.POST("/refresh", authHandler.Refresh)
-		authGroup.GET("/token", authHandler.LoginWithToken)
+		authGroup.POST("/token", authHandler.LoginWithToken)
 		authGroup.POST("/logout", authHandler.Logout)
 
 		// OAuth token routes: LMS passes pre-obtained OmniAuth tokens for JWT issuance

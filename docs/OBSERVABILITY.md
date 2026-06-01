@@ -121,4 +121,4 @@ Logging is via [`zap`](https://github.com/uber-go/zap). The logger is configured
 
 All `fmt.Printf` error reporting was removed in the post-incident hardening work — the `fmt.Printf` stdout-mutex contention path was identified as a contributor to the 2026-05-19 CPU saturation. Every code path now uses `zap` with structured fields.
 
-Sensitive value redaction is a known gap (see the security review at [`docs/pre-release-hardening/reservoir-security-review.md`](./pre-release-hardening/reservoir-security-review.md), Finding 3 — `/auth/token?token=SECRET` is currently logged in plaintext).
+The request logger redacts the values of sensitive query keys (`token`, `secret`, `password`, `code`, `access_token`, `refresh_token`) before logging, so credentials that appear in a query string are never written to logs (security review Finding 3 / LMS-6514). The magic-link endpoint additionally no longer accepts its secret via the query string at all — it reads the `Authorization` header or JSON body.

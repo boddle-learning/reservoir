@@ -291,8 +291,17 @@ Content-Type: application/json
 ```
 
 #### Login Token (Magic Link)
+The secret is sent in the `Authorization` header (or a JSON body), never the
+query string, so it can't leak via access logs, browser history, or Referer.
 ```http
-GET /auth/token?token=SECRET_TOKEN HTTP/1.1
+POST /auth/token HTTP/1.1
+Authorization: Bearer SECRET_TOKEN
+```
+```http
+POST /auth/token HTTP/1.1
+Content-Type: application/json
+
+{ "token": "SECRET_TOKEN" }
 ```
 
 #### Logout (Token Revocation)
